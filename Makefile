@@ -10,8 +10,8 @@ test:
 xref:
 	$(REBAR) xref
 
-lint: compile
-	elvis rock
+lint:
+	$(REBAR) lint
 
 check_format:
 	$(REBAR) fmt -c
