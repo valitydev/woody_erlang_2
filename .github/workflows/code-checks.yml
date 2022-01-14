@@ -1,0 +1,51 @@
+name: Erlang CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: erlang:24.1.6
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Cache rebar3
+      if: ${{ !env.ACT }}
+      id: cache-rebar3
+      uses: actions/cache@v2
+      with:
+        path: "~/.cache/rebar3"
+        key: rebar-global-cache-${{ hashFiles('rebar.lock') }}
+    
+    - name: Cache _build
+      if: ${{ !env.ACT }}
+      id: cache-build
+      uses: actions/cache@v2
+      with:
+        path: "_build/default/"
+        key: ${{ runner.os }}-${{ hashFiles('rebar.lock') }}-build-default
+    
+    - name: Compile
+      run: make compile
+    
+    - name: Check formatting
+      run: make check_format
+    
+    - name: Run xref
+      run: make xref
+    
+    - name: Run linting
+      run: make lint
+    
+    - name: Run dialyzer
+      run: make dialyze
+    
+    - name: Run tests
+      run: make test
