@@ -1,5 +1,7 @@
 REBAR := $(shell which rebar3 2>/dev/null || which ./rebar3)
 
+.PHONY: compile test xref lint check_format format clean distclean dialyze cover bench
+
 compile:
 	$(REBAR) compile
 
@@ -30,6 +32,9 @@ distclean:
 
 dialyze:
 	$(REBAR) as test dialyzer
+
+cover:
+	$(REBAR) cover
 
 bench:
 	$(REBAR) as test bench -m bench_woody_event_handler -n 1000

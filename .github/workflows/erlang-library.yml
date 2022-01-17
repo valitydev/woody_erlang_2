@@ -1,0 +1,90 @@
+name: Erlang library CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }}, OTP-${{ matrix.otp_version }})
+    
+    runs-on: ${{ matrix.os }}
+    
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      matrix:
+        otp_version: [24.1]
+        os: [ubuntu-latest]
+
+    env:
+      THRIFT_COMPILER_VERSION: 0.14.2
+
+    container:
+      image: erlang:${{ matrix.otp_version }}
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+    
+    - name: Cache Hex packages
+      uses: actions/cache@v1
+      with:
+        path: ~/.cache/rebar3/hex/hexpm/packages
+        key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-${{ hashFiles('**/rebar.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
+
+    - name: Cache PLTs
+      uses: actions/cache@v1
+      with:
+        path: |
+          ~/.cache/rebar3/rebar3_*_plt
+          _build/default/rebar3_*_plt
+        key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
+    
+    - name: Install thrift compiler (temporary)
+      run: |
+        wget -c https://github.com/valitydev/thrift/releases/download/${{ env.THRIFT_COMPILER_VERSION }}/thrift-${{ env.THRIFT_COMPILER_VERSION }}-linux-x86_64.tar.gz -O - | tar -xz -C /usr/local/bin/
+        chmod +x /usr/local/bin/thrift
+
+    - name: Compile
+      run: make compile
+    
+    - name: Check formatting
+      run: make check_format
+    
+    - name: Run xref
+      run: make xref
+    
+    - name: Run linting
+      run: make lint
+    
+    - name: Run dialyzer
+      run: make dialyze
+    
+    - name: Run tests
+      id: run_tests
+      run: make test
+
+    - name: Store CT Logs
+      if: ${{ failure() && steps.run_tests.outcome == 'failure' }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ct-logs
+        path: _build/test/logs
+    
+    - name: Run cover
+      run: make cover
+
+    - name: Upload cover to codecov
+    - uses: codecov/codecov-action@v2
+      with:
+        files: _build/test/cover/ct.coverdata
