@@ -10,16 +10,24 @@ jobs:
   build:
     name: Build (${{ matrix.os }}, OTP-${{ matrix.otp_version }})
     
-    runs-on: ${{ matrix.os }}
+    env:
+      OTP_VERSION: 24.2
+      THRIFT_COMPILER_VERSION: 0.14.2
 
     strategy:
       matrix:
-        otp_version: [24.2]
-        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            otp_version: ${{ env.OTP_VERSION }}
+            thrift_version: ${{ env.THRIFT_COMPILER_VERSION }}
+            thrift_architecture: linux-x86_64
+          - os: macos-latest
+            otp_version: ${{ env.OTP_VERSION }}
+            thrift_version: ${{ env.THRIFT_COMPILER_VERSION }}
+            thrift_architecture: darwin-arm64
     
-    env:
-      THRIFT_COMPILER_VERSION: 0.14.2
-    
+    runs-on: ${{ matrix.os }}
+
     container:
       image: erlang:${{ matrix.otp_version }}
 
@@ -48,7 +56,7 @@ jobs:
 
     - name: Install thrift compiler (temporary)
       run: |
-        wget -c https://github.com/valitydev/thrift/releases/download/${{ env.THRIFT_COMPILER_VERSION }}/thrift-${{ env.THRIFT_COMPILER_VERSION }}-linux-x86_64.tar.gz -O - | tar -xz -C /usr/local/bin/
+        wget -c https://github.com/valitydev/thrift/releases/download/${{ matrix.thrift_version }}/thrift-${{ matrix.thrift_version }}-${{ matrix.thrift_architecture }}.tar.gz -O - | tar -xz -C /usr/local/bin/
         chmod +x /usr/local/bin/thrift
 
     - name: Compile
@@ -71,16 +79,8 @@ jobs:
       run: make test
 
     - name: Store CT Logs
-      if: ${{ failure() && steps.run_tests.outcome == 'failure' && !env.ACT }}
+      if: ${{ failure() && steps.run_tests.outcome == 'failure' }}
       uses: actions/upload-artifact@v2
       with:
-        name: ct-logs
+        name: ct-logs-${{ runner.os }}
         path: _build/test/logs
-    
-    - name: Run cover
-      run: make cover
-
-    - name: Upload cover to codecov
-      uses: codecov/codecov-action@v2
-      with:
-        files: _build/test/cover/ct.coverdata
