@@ -17,9 +17,6 @@ jobs:
         otp_version: [24.2]
         os: [ubuntu-latest]
 
-    env:
-      THRIFT_COMPILER_VERSION: 0.14.2
-
     container:
       image: erlang:${{ matrix.otp_version }}
 
@@ -29,7 +26,6 @@ jobs:
       uses: actions/checkout@v2
     
     - name: Cache Hex packages
-      if: ${{ !env.ACT }}
       uses: actions/cache@v1
       with:
         path: ~/.cache/rebar3/hex/hexpm/packages
@@ -38,7 +34,6 @@ jobs:
           ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
 
     - name: Cache PLTs
-      if: ${{ !env.ACT }}
       uses: actions/cache@v1
       with:
         path: |
@@ -47,11 +42,11 @@ jobs:
         key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
         restore-keys: |
           ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
-    
-    - name: Install thrift compiler (temporary)
-      run: |
-        wget -c https://github.com/valitydev/thrift/releases/download/${{ env.THRIFT_COMPILER_VERSION }}/thrift-${{ env.THRIFT_COMPILER_VERSION }}-linux-x86_64.tar.gz -O - | tar -xz -C /usr/local/bin/
-        chmod +x /usr/local/bin/thrift
+
+    - name: Setup thrift compiler
+      uses: valitydev/action-setup-thrift@v0.0.4
+      with:
+        thrift-version: '0.14.2'
 
     - name: Compile
       run: make compile
@@ -83,7 +78,6 @@ jobs:
       run: make cover
 
     - name: Upload cover to codecov
-      if: ${{ !env.ACT }}
       uses: codecov/codecov-action@v2
       with:
         files: _build/test/cover/ct.coverdata

@@ -301,9 +301,10 @@ check_error_reason(Headers, Code, WoodyState) ->
 do_check_error_reason(none, 200, _WoodyState) ->
     <<>>;
 do_check_error_reason(none, _Code, WoodyState) ->
-    EventMessage = <<"server receiving this request does not implement the woody protocol">>,
-    _ = log_event(?EV_TRACE, WoodyState, #{event => EventMessage}),
-    EventMessage;
+    _ = log_event(?EV_TRACE, WoodyState, #{event => woody_util:to_binary([?HEADER_E_REASON, " header missing"])}),
+    woody_util:to_binary([
+        "This server does not implement the woody protocol ('", ?HEADER_E_REASON, "' header missing)."
+    ]);
 do_check_error_reason(Reason, _, _) ->
     Reason.
 
