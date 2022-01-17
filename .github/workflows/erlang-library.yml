@@ -17,6 +17,7 @@ jobs:
             thrift_version: 0.14.2
 
     name: Build (${{ matrix.os }}, OTP-${{ matrix.otp_version }})
+    
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -36,7 +37,7 @@ jobs:
         rebar3-version: ${{ matrix.rebar_version }}
 
     - name: Cache Hex packages
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: ~/.cache/rebar3/hex/hexpm/packages
         key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-${{ hashFiles('**/rebar.lock') }}
@@ -44,7 +45,7 @@ jobs:
           ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
 
     - name: Cache PLTs
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: |
           ~/.cache/rebar3/rebar3_*_plt
@@ -78,6 +79,3 @@ jobs:
       with:
         name: ct-logs
         path: _build/test/logs
-    
-    - name: Run cover
-      run: make cover
