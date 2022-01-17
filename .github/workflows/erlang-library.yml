@@ -44,16 +44,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
 
-    - name: Cache PLTs
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cache/rebar3/rebar3_*_plt
-          _build/default/rebar3_*_plt
-        key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
-
     - name: Compile
       run: make compile
     
@@ -66,6 +56,16 @@ jobs:
     - name: Run linting
       run: make lint
     
+    - name: Cache PLTs
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cache/rebar3/rebar3_*_plt
+          _build/default/rebar3_*_plt
+        key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
+
     - name: Run dialyzer
       run: make dialyze
     
