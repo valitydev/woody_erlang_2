@@ -16,7 +16,10 @@ jobs:
       matrix:
         otp_version: [24.2]
         os: [ubuntu-latest]
-
+    
+    env:
+      THRIFT_COMPILER_VERSION: 0.14.2
+    
     container:
       image: erlang:${{ matrix.otp_version }}
 
@@ -43,10 +46,10 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
 
-    - name: Setup thrift compiler
-      uses: valitydev/action-setup-thrift@v0.0.4
-      with:
-        thrift-version: '0.14.2'
+    - name: Install thrift compiler (temporary)
+      run: |
+        wget -c https://github.com/valitydev/thrift/releases/download/${{ env.THRIFT_COMPILER_VERSION }}/thrift-${{ env.THRIFT_COMPILER_VERSION }}-linux-x86_64.tar.gz -O - | tar -xz -C /usr/local/bin/
+        chmod +x /usr/local/bin/thrift
 
     - name: Compile
       run: make compile
