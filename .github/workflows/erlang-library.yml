@@ -9,21 +9,17 @@ on:
 jobs:
   build:
     name: Build (${{ matrix.os }}, OTP-${{ matrix.otp_version }})
-    
-    env:
-      OTP_VERSION: 24.2
-      THRIFT_COMPILER_VERSION: 0.14.2
 
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            otp_version: ${{ env.OTP_VERSION }}
-            thrift_version: ${{ env.THRIFT_COMPILER_VERSION }}
+            otp_version: 24.2
+            thrift_version: 0.14.2
             thrift_architecture: linux-x86_64
           - os: macos-latest
-            otp_version: ${{ env.OTP_VERSION }}
-            thrift_version: ${{ env.THRIFT_COMPILER_VERSION }}
+            otp_version: 24.2
+            thrift_version: 0.14.2
             thrift_architecture: darwin-arm64
     
     runs-on: ${{ matrix.os }}
