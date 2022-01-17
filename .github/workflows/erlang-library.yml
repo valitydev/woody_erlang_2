@@ -8,30 +8,33 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }}, OTP-${{ matrix.otp_version }})
-
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
             otp_version: 24.2
+            rebar_version: 3.18
             thrift_version: 0.14.2
-            thrift_architecture: linux-x86_64
-          - os: macos-latest
-            otp_version: 24.2
-            thrift_version: 0.14.2
-            thrift_architecture: darwin-arm64
-    
-    runs-on: ${{ matrix.os }}
 
-    container:
-      image: erlang:${{ matrix.otp_version }}
+    name: Build (${{ matrix.os }}, OTP-${{ matrix.otp_version }})
+    runs-on: ${{ matrix.os }}
 
     steps:
 
     - name: Checkout repository
       uses: actions/checkout@v2
     
+    - name: Setup Thrift compiler
+      uses: valitydev/action-setup-thrift@v0.0.4
+      with:
+        thrift-version: ${{ matrix.thrift_version }}
+
+    - name: Setup BEAM
+      uses: erlef/setup-beam@v1.10
+      with:
+        otp-version: ${{ matrix.otp_version }}
+        rebar3-version: ${{ matrix.rebar_version }}
+
     - name: Cache Hex packages
       uses: actions/cache@v1
       with:
@@ -49,11 +52,6 @@ jobs:
         key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
         restore-keys: |
           ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
-
-    - name: Install thrift compiler (temporary)
-      run: |
-        wget -c https://github.com/valitydev/thrift/releases/download/${{ matrix.thrift_version }}/thrift-${{ matrix.thrift_version }}-${{ matrix.thrift_architecture }}.tar.gz -O - | tar -xz -C /usr/local/bin/
-        chmod +x /usr/local/bin/thrift
 
     - name: Compile
       run: make compile
@@ -78,5 +76,8 @@ jobs:
       if: ${{ failure() && steps.run_tests.outcome == 'failure' }}
       uses: actions/upload-artifact@v2
       with:
-        name: ct-logs-${{ runner.os }}
+        name: ct-logs
         path: _build/test/logs
+    
+    - name: Run cover
+      run: make cover
