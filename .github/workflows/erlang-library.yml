@@ -61,7 +61,7 @@ jobs:
       with:
         path: |
           ~/.cache/rebar3/rebar3_*_plt
-          _build/default/rebar3_*_plt
+          _build/test/rebar3_*_plt
         key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
         restore-keys: |
           ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
