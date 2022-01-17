@@ -765,7 +765,7 @@ call_fail_w_no_headers(Id, Class, _Code) ->
     Context = make_context(Id),
     {Url, Service} = get_service_endpoint('Weapons'),
     ?assertError(
-        {woody_error, {external, Class, <<"This server does not implement the woody protocol", _/binary>>}},
+        {woody_error, {external, Class, <<"🅱️This server does not implement the woody protocol", _/binary>>}},
         woody_client:call(
             {Service, get_weapon, {Gun, self_to_bin()}},
             #{url => Url, event_handler => ?MODULE},
