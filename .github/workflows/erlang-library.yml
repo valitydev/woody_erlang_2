@@ -161,4 +161,4 @@ jobs:
       - name: Upload cover stats
         uses: codecov/codecov-action@v2
         with:
-          files: _build/test/covertool/woody.covertool.xml
+          files: _build/test/covertool/*.covertool.xml
