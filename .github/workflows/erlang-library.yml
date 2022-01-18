@@ -13,7 +13,7 @@ env:
 
 jobs:
   build:
-    name: Build (OTP-${{ env.OTP_VERSION }})
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -42,7 +42,7 @@ jobs:
         run: make compile
 
   analyze:
-    name: Analyze (OTP-${{ env.OTP_VERSION }})
+    name: Analyze
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -91,7 +91,7 @@ jobs:
         run: make dialyze
 
   test:
-    name: Test (OTP-${{ env.OTP_VERSION }})
+    name: Test
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -129,7 +129,7 @@ jobs:
           path: _build/test/logs
 
   cover:
-    name: Cover (OTP-${{ env.OTP_VERSION }})
+    name: Cover
     needs: [build, test, analyze]
     runs-on: ubuntu-latest
     steps:
