@@ -35,7 +35,7 @@ jobs:
             ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-hex-
       
       - name: Get dependencies
-        if: steps.hex_cache.outputs.cache-hit != 'true'
+        if: ${{ steps.hex_cache.outputs.cache-hit != 'true' }}
         run: rebar3 deps
 
   build:
