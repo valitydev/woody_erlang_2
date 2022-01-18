@@ -71,11 +71,11 @@ jobs:
       - name: Check formatting
         run: make check_format
       
-      - name: Run xref
-        run: make xref
-      
       - name: Run linting
         run: make lint
+
+      - name: Run xref
+        run: make xref
 
   analyze:
     name: Dialyze
@@ -155,29 +155,10 @@ jobs:
           name: ct-logs
           path: _build/test/logs
 
-  cover:
-    name: Cover
-    needs: [build, test, analyze]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-      
-      - name: Setup Thrift compiler
-        uses: valitydev/action-setup-thrift@v0.0.4
+      - name: Run cover analysis
+        run: make cover
+
+      - name: Upload cover stats
+        uses: codecov/codecov-action@v2
         with:
-          thrift-version: ${{ env.THRIFT_VERSION }}
-      
-      - name: Setup BEAM
-        uses: erlef/setup-beam@v1.10
-        with:
-          otp-version: ${{ env.OTP_VERSION }}
-          rebar3-version: ${{ env.REBAR_VERSION }}
-      
-      - name: Cache Hex packages
-        uses: actions/cache@v2
-        with:
-          path: ~/.cache/rebar3/hex/hexpm/packages
-          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-hex-${{ hashFiles('**/rebar.config') }}
-          restore-keys: |
-            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-hex-
+          files: _build/test/covertool/woody.covertool.xml

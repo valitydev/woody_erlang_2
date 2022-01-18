@@ -33,6 +33,10 @@ distclean:
 dialyze:
 	$(REBAR) as test dialyzer
 
+cover:
+	$(REBAR) cover
+	$(REBAR) covertool generate
+
 bench:
 	$(REBAR) as test bench -m bench_woody_event_handler -n 1000
 	$(REBAR) as test bench -m bench_woody_formatter -n 10
