@@ -6,76 +6,151 @@ on:
   pull_request:
     branches: [ '**' ]
 
+env:
+  OTP_VERSION: 24.2
+  REBAR_VERSION: 3.18
+  THRIFT_VERSION: 0.14.2
+
 jobs:
   build:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            otp_version: 24.2
-            rebar_version: 3.18
-            thrift_version: 0.14.2
-
-    name: Build (${{ matrix.os }}, OTP-${{ matrix.otp_version }})
-    
-    runs-on: ${{ matrix.os }}
-
+    name: Build (OTP-${{ env.OTP_VERSION }})
+    runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup Thrift compiler
+        uses: valitydev/action-setup-thrift@v0.0.4
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+      
+      - name: Cache Hex packages
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/rebar3/hex/hexpm/packages
+          key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-${{ hashFiles('**/rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
+      
+      - name: Compile
+        run: make compile
 
-    - name: Checkout repository
-      uses: actions/checkout@v2
-    
-    - name: Setup Thrift compiler
-      uses: valitydev/action-setup-thrift@v0.0.4
-      with:
-        thrift-version: ${{ matrix.thrift_version }}
+  analyze:
+    name: Analyze (OTP-${{ env.OTP_VERSION }})
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup Thrift compiler
+        uses: valitydev/action-setup-thrift@v0.0.4
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+      
+      - name: Cache Hex packages
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/rebar3/hex/hexpm/packages
+          key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-${{ hashFiles('**/rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
+      
+      - name: Check formatting
+        run: make check_format
+      
+      - name: Run xref
+        run: make xref
+      
+      - name: Run linting
+        run: make lint
 
-    - name: Setup BEAM
-      uses: erlef/setup-beam@v1.10
-      with:
-        otp-version: ${{ matrix.otp_version }}
-        rebar3-version: ${{ matrix.rebar_version }}
+      - name: Cache PLTs
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cache/rebar3/rebar3_*_plt
+            _build/test/rebar3_*_plt
+          key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-      
 
-    - name: Cache Hex packages
-      uses: actions/cache@v2
-      with:
-        path: ~/.cache/rebar3/hex/hexpm/packages
-        key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-${{ hashFiles('**/rebar.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
+      - name: Run dialyzer
+        run: make dialyze
 
-    - name: Compile
-      run: make compile
-    
-    - name: Check formatting
-      run: make check_format
-    
-    - name: Run xref
-      run: make xref
-    
-    - name: Run linting
-      run: make lint
-    
-    - name: Cache PLTs
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cache/rebar3/rebar3_*_plt
-          _build/test/rebar3_*_plt
-        key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-${{ hashFiles('**/rebar.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-otp-${{ matrix.otp_version }}-plt-
+  test:
+    name: Test (OTP-${{ env.OTP_VERSION }})
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup Thrift compiler
+        uses: valitydev/action-setup-thrift@v0.0.4
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+      
+      - name: Cache Hex packages
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/rebar3/hex/hexpm/packages
+          key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-${{ hashFiles('**/rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
 
-    - name: Run dialyzer
-      run: make dialyze
-    
-    - name: Run tests
-      id: run_tests
-      run: make test
+      - name: Run tests
+        id: run_tests
+        run: make test
 
-    - name: Store CT Logs
-      if: ${{ failure() && steps.run_tests.outcome == 'failure' }}
-      uses: actions/upload-artifact@v2
-      with:
-        name: ct-logs
-        path: _build/test/logs
+      - name: Store CT Logs
+        if: ${{ steps.run_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: ct-logs
+          path: _build/test/logs
+
+  cover:
+    name: Cover (OTP-${{ env.OTP_VERSION }})
+    needs: [build, test, analyze]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup Thrift compiler
+        uses: valitydev/action-setup-thrift@v0.0.4
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+      
+      - name: Cache Hex packages
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/rebar3/hex/hexpm/packages
+          key: ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-${{ hashFiles('**/rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ matrix.otp_version }}-hex-
