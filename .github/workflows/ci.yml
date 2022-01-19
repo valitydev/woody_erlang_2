@@ -139,7 +139,7 @@ jobs:
         run: rebar3 ct --cover
 
       - name: Store CT Logs
-        if: ${{ steps.run-common-test.outcome == 'failure' }}
+        if: ${{ failure() && steps.run-common-test.outcome == 'failure' }}
         uses: actions/upload-artifact@v2
         with:
           name: ct-logs
