@@ -1,0 +1,11 @@
+name: Erlang Library CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  run_checks:
+    uses: ../reusable/workflows/erlang-ci.yml
