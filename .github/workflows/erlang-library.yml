@@ -30,8 +30,6 @@ jobs:
         with:
           path: _build/default/lib
           key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
 
       - name: Compile
         run: make compile
@@ -60,8 +58,6 @@ jobs:
         with:
           path: _build/default/lib
           key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
       
       - name: Check formatting
         run: make check_format
@@ -96,8 +92,6 @@ jobs:
         with:
           path: _build/default/lib
           key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
 
       - name: Cache PLTs
         uses: actions/cache@v2
@@ -136,8 +130,6 @@ jobs:
         with:
           path: _build/default/lib
           key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
 
       - name: Run tests
         id: run_tests
