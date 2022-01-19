@@ -6,6 +6,149 @@ on:
   pull_request:
     branches: [ '**' ]
 
+env:
+  OTP_VERSION: 24.2
+  REBAR_VERSION: 3.18
+  THRIFT_VERSION: 0.14.2
+
 jobs:
-  run_checks:
-    uses: ../reusable/workflows/erlang-ci.yml@${{ github.sha }}
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+      
+      - name: Cache _build
+        uses: actions/cache@v2
+        with:
+          path: _build/*/lib
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
+
+      - name: Compile
+        run: rebar3 compile
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup Thrift compiler
+        uses: valitydev/action-setup-thrift@v0.0.4
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+      
+      - name: Cache _build
+        uses: actions/cache@v2
+        with:
+          path: _build/*/lib
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
+      
+      - name: Check formatting
+        run: rebar3 fmt -c
+      
+      - name: Run linting
+        run: rebar3 lint
+
+      - name: Run xref
+        run: rebar3 xref
+
+  dialyze:
+    name: Dialyze
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup Thrift compiler
+        uses: valitydev/action-setup-thrift@v0.0.4
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+
+      - name: Cache _build
+        uses: actions/cache@v2
+        with:
+          path: _build/*/lib
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
+
+      - name: Cache PLTs
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cache/rebar3/rebar3_*_plt
+            _build/test/rebar3_*_plt
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-plt-${{ hashFiles('**/rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-plt-      
+
+      - name: Run dialyzer
+        run: rebar3 as test dialyzer
+
+  test:
+    name: Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Setup Thrift compiler
+        uses: valitydev/action-setup-thrift@v0.0.4
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+      
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1.10
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          rebar3-version: ${{ env.REBAR_VERSION }}
+
+      - name: Cache _build
+        uses: actions/cache@v2
+        with:
+          path: _build/*/lib
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
+
+      - name: Run EUnit
+        run: rebar3 eunit --cover
+
+      - name: Run CT
+        id: run-common-test
+        run: rebar3 ct --cover
+
+      - name: Store CT Logs
+        if: ${{ steps.run-common-test.outcome == 'failure' }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: ct-logs
+          path: _build/test/logs
+
+      - name: Run test coverage analysis
+        run: rebar3 do cover, covertool generate
+
+      - name: Upload coverage statistics
+        uses: codecov/codecov-action@v2
+        with:
+          files: _build/test/covertool/*.covertool.xml
