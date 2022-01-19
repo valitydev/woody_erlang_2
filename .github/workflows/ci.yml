@@ -8,4 +8,4 @@ on:
 
 jobs:
   run_checks:
-    uses: ../reusable/workflows/erlang-ci.yml
+    uses: ../reusable/workflows/erlang-ci.yml@${{ github.sha }}
