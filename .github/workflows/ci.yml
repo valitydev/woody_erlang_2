@@ -29,9 +29,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: _build/*/lib
-          key: ${{ runner.os }}-build-${{ hashFiles('**/rebar.lock') }}
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
           restore-keys: |
-            ${{ runner.os }}-build-
+            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
 
       - name: Compile
         run: rebar3 compile
@@ -54,9 +54,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: _build/*/lib
-          key: ${{ runner.os }}-build-${{ hashFiles('**/rebar.lock') }}
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
           restore-keys: |
-            ${{ runner.os }}-build-
+            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
       
       - name: Check formatting
         run: rebar3 fmt -c
@@ -90,9 +90,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: _build/*/lib
-          key: ${{ runner.os }}-build-${{ hashFiles('**/rebar.lock') }}
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
           restore-keys: |
-            ${{ runner.os }}-build-
+            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
 
       - name: Cache PLTs
         uses: actions/cache@v2
@@ -128,9 +128,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: _build/*/lib
-          key: ${{ runner.os }}-build-${{ hashFiles('**/rebar.lock') }}
+          key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-${{ hashFiles('**/rebar.lock') }}
           restore-keys: |
-            ${{ runner.os }}-build-
+            ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-build-
 
       - name: Run EUnit
         run: rebar3 eunit --cover
