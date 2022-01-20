@@ -97,9 +97,7 @@ jobs:
       - name: Cache PLTs
         uses: actions/cache@v2
         with:
-          path: |
-            ~/.cache/rebar3/rebar3_*_plt
-            _build/test/rebar3_*_plt
+          path: _build/test/rebar3_*_plt
           key: ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-plt-${{ hashFiles('**/rebar.lock') }}
           restore-keys: |
             ${{ runner.os }}-otp-${{ env.OTP_VERSION }}-plt-      
