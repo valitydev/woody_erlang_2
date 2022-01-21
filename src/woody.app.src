@@ -17,9 +17,6 @@
         {enable_debug, false}
     ]},
     {modules, []},
-    {maintainers, [
-        "Anton Belyaev <a.belyaev@rbkmoney.com>"
-    ]},
     {licenses, []},
     {links, []}
 ]}.

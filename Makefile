@@ -1,43 +1,19 @@
 REBAR := $(shell which rebar3 2>/dev/null || which ./rebar3)
-SUBMODULES = build_utils
-SUBTARGETS = $(patsubst %,%/.git,$(SUBMODULES))
 
-UTILS_PATH := build_utils
-# ToDo: remove unused TEMPLATES_PATH here, when the bug
-# with handling of the varriable in build_utils is fixed
-TEMPLATES_PATH := .
-SERVICE_NAME := woody
+.PHONY: compile test xref lint check_format format clean distclean dialyze cover bench
 
-BUILD_IMAGE_NAME := build-erlang
-BUILD_IMAGE_TAG := c60896ef07d41e7ae2e5f9b6ce845a60ad79acc7
-
-CALL_W_CONTAINER := all submodules compile xref lint test bench dialyze clean distclean \
-	check_format format
-
-.PHONY: $(CALL_W_CONTAINER)
-
-all: compile
-
--include $(UTILS_PATH)/make_lib/utils_container.mk
-
-$(SUBTARGETS): %/.git: %
-	git submodule update --init $<
-	touch $@
-
-submodules: $(SUBTARGETS)
-
-compile: submodules
+compile:
 	$(REBAR) compile
 
-test: submodules
+test:
 	$(REBAR) eunit
 	$(REBAR) ct
 
-xref: submodules
+xref:
 	$(REBAR) xref
 
-lint: compile
-	elvis rock
+lint:
+	$(REBAR) lint
 
 check_format:
 	$(REBAR) fmt -c
@@ -56,6 +32,10 @@ distclean:
 
 dialyze:
 	$(REBAR) as test dialyzer
+
+cover:
+	$(REBAR) cover
+	$(REBAR) covertool generate
 
 bench:
 	$(REBAR) as test bench -m bench_woody_event_handler -n 1000

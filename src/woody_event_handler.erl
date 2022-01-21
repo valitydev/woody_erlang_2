@@ -661,14 +661,14 @@ format_service_request_test_() ->
         ),
         ?_assertEqual(
             "[1012689088739803136 1012689108264288256 1012689088534282240][client] calling "
-            "CustomerManagement:Create(params=CustomerParams{party_id='1CQdDqPROyW',shop_id='1CQdDwgt3R3',"
-            "contact_info=ContactInfo{email='invalid_shop'},metadata=Value{nl=Null{}}})",
+            "CustomerManagement:Create(params=CustomerParams{customer_id='1',party_id='1CQdDqPROyW',"
+            "shop_id='1CQdDwgt3R3',contact_info=ContactInfo{email='invalid_shop'},metadata=Value{nl=Null{}}})",
             format_msg_limited(
                 format_event(
                     ?EV_CALL_SERVICE,
                     #{
                         args =>
-                            {{payproc_CustomerParams, <<"1CQdDqPROyW">>, <<"1CQdDwgt3R3">>,
+                            {{payproc_CustomerParams, <<"1">>, <<"1CQdDqPROyW">>, <<"1CQdDwgt3R3">>,
                                 {domain_ContactInfo, undefined, <<"invalid_shop">>}, {nl, {json_Null}}}},
                         function => 'Create',
                         metadata => #{

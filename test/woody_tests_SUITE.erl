@@ -760,13 +760,12 @@ call_no_headers_503_test(_) ->
 call_no_headers_504_test(_) ->
     call_fail_w_no_headers(<<"call_no_headers_404">>, result_unknown, 504).
 
-call_fail_w_no_headers(Id, Class, Code) ->
+call_fail_w_no_headers(Id, Class, _Code) ->
     Gun = <<"Enforcer">>,
     Context = make_context(Id),
     {Url, Service} = get_service_endpoint('Weapons'),
-    BinCode = integer_to_binary(Code),
     ?assertError(
-        {woody_error, {external, Class, <<"got response with http code ", BinCode:3/binary, _/binary>>}},
+        {woody_error, {external, Class, <<"This server does not implement the woody protocol", _/binary>>}},
         woody_client:call(
             {Service, get_weapon, {Gun, self_to_bin()}},
             #{url => Url, event_handler => ?MODULE},
