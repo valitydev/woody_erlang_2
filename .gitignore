@@ -1,14 +1,14 @@
-# general
-log
+# Build artifacts
 /_build/
-/_checkouts/
-*~
+*.o
+*.beam
+*.plt
+
+# Run artifacts
 erl_crash.dump
-.tags*
-*.sublime-workspace
-.edts
-.DS_Store
-.rebar3/
-ebin/
-docker-compose.yml
+log
 test/woody_test_thrift.*
+
+# make stuff
+/.image.*
+Makefile.env
