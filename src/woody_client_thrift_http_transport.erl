@@ -1,6 +1,6 @@
 -module(woody_client_thrift_http_transport).
 
--behaviour(thrift_transport).
+% -behaviour(thrift_transport).
 
 -dialyzer(no_undefined_callbacks).
 

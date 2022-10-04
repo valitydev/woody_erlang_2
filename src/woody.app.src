@@ -9,9 +9,11 @@
         genlib,
         cowboy,
         hackney,
-        thrift,
         gproc,
         cache
+    ]},
+    {optional_applications, [
+        thrift
     ]},
     {env, [
         {enable_debug, false}
