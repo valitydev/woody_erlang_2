@@ -684,7 +684,7 @@ add_ev_meta(WoodyState, Codec, Service, ReplyType, Function, Args) ->
         WoodyState
     ).
 
-get_service_name(thrift_client_codec, {_Module, Service}) ->
+get_service_name(thrift_processor_codec, {_Module, Service}) ->
     Service;
 get_service_name(Codec, Service) ->
     Codec:get_service_name(Service).
