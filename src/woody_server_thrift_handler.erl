@@ -84,7 +84,7 @@ invoke_handler(State) ->
     handle_result(Result, Reply, MsgType).
 
 -spec handle_function(woody:handler(woody:options()), woody:func(), woody:args(), woody_state:st()) ->
-    {ok, woody:result()} | no_return().
+    {ok, woody:result()} | {exception, _TypeName, woody:result()} | no_return().
 handle_function(Handler, Function, Args, WoodyState) ->
     _ = woody_event_handler:handle_event(?EV_INVOKE_SERVICE_HANDLER, WoodyState, #{}),
     {Module, Opts} = woody_util:get_mod_opts(Handler),

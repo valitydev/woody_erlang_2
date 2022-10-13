@@ -16,6 +16,7 @@
     event_handler := woody:ev_handlers(),
     transport_opts => transport_options(),
     resolver_opts => woody_resolver:options(),
+    codec => module(),
     protocol => thrift,
     transport => http
 }.
@@ -45,22 +46,34 @@ child_spec(Options) ->
     hackney_pool:child_spec(Name, maps:to_list(TransportOpts)).
 
 -spec call(woody:request(), options(), woody_state:st()) -> woody_client:result().
-call({Service = {_, ServiceName}, Function, Args}, Opts, WoodyState) ->
+call({Service, Function, Args}, Opts, WoodyState) ->
     WoodyContext = woody_state:get_context(WoodyState),
+    ClientCodec = maps:get(codec, Opts, thrift_client_codec),
     WoodyState1 = woody_state:add_ev_meta(
         #{
-            service => ServiceName,
+            service => get_service_name(ClientCodec, Service),
             service_schema => Service,
             function => Function,
-            type => woody_util:get_rpc_type(Service, Function),
+            type => get_rpc_type(ClientCodec, Service, Function),
             args => Args,
+            codec => ClientCodec,
             deadline => woody_context:get_deadline(WoodyContext),
             metadata => woody_context:get_meta(WoodyContext)
         },
         WoodyState
     ),
     _ = log_event(?EV_CALL_SERVICE, WoodyState1, #{}),
-    do_call(Service, Function, Args, Opts, WoodyState1).
+    do_call(ClientCodec, Service, Function, Args, Opts, WoodyState1).
+
+get_service_name(thrift_client_codec, {_Module, Service}) ->
+    Service;
+get_service_name(Codec, Service) ->
+    Codec:get_service_name(Service).
+
+get_rpc_type(thrift_client_codec, Service, Function) ->
+    woody_util:get_rpc_type(Service, Function);
+get_rpc_type(Codec, Service, Function) ->
+    Codec:get_rpc_type(Service, Function).
 
 %%
 %% Internal functions
@@ -71,7 +84,6 @@ call({Service = {_, ServiceName}, Function, Args}, Opts, WoodyState) ->
 -type http_headers() :: [{binary(), binary()}].
 -type header_parse_value() :: none | woody:http_header_val().
 
--define(CODEC, thrift_strict_binary_codec).
 -define(ERROR_RESP_BODY, <<"parse http response body error">>).
 -define(ERROR_RESP_HEADER, <<"parse http response headers error">>).
 -define(BAD_RESP_HEADER, <<"reason unknown due to bad ", ?HEADER_PREFIX/binary, "-error- headers">>).
@@ -91,15 +103,15 @@ get_transport_opts(Opts) ->
 get_resolver_opts(Opts) ->
     maps:get(resolver_opts, Opts, #{}).
 
--spec do_call(woody:service(), woody:func(), woody:args(), options(), woody_state:st()) -> woody_client:result().
-do_call(Service, Function, Args, Opts, WoodyState) ->
-    Buffer = ?CODEC:new(),
+-spec do_call(module(), woody:service(), woody:func(), woody:args(), options(), woody_state:st()) ->
+    woody_client:result().
+do_call(Codec, Service, Function, Args, Opts, WoodyState) ->
     Result =
-        case thrift_client_codec:write_function_call(Buffer, ?CODEC, Service, Function, Args, 0) of
+        case write_call(Codec, <<>>, Service, Function, Args, 0) of
             {ok, Buffer1} ->
                 case send_call(Buffer1, Opts, WoodyState) of
                     {ok, Response} ->
-                        handle_result(Service, Function, Response);
+                        handle_result(Codec, Service, Function, Response);
                     Error ->
                         Error
                 end;
@@ -109,32 +121,51 @@ do_call(Service, Function, Args, Opts, WoodyState) ->
     log_result(Result, WoodyState),
     map_result(Result).
 
--spec handle_result(woody:service(), woody:func(), binary()) -> _Result.
-handle_result(Service, Function, Response) ->
-    Buffer = ?CODEC:new(Response),
-    case thrift_client_codec:read_function_result(Buffer, ?CODEC, Service, Function, 0) of
+write_call(thrift_client_codec, Buffer, Service, Function, Args, SeqId) ->
+    thrift_client_codec:write_function_call(
+        Buffer,
+        thrift_strict_binary_codec,
+        Service,
+        Function,
+        Args,
+        SeqId
+    );
+write_call(Codec, Buffer, Service, Function, Args, SeqId) ->
+    Codec:write_call(Buffer, Service, Function, Args, SeqId).
+
+-spec handle_result(module(), woody:service(), woody:func(), binary()) -> _Result.
+handle_result(Codec, Service, Function, Response) ->
+    case read_result(Codec, Response, Service, Function, 0) of
         {ok, Result, Leftovers} ->
-            Bytes = ?CODEC:close(Leftovers),
             case Result of
-                ok when Bytes == <<>> ->
+                ok when Leftovers == <<>> ->
                     {ok, ok};
-                {reply, Reply} when Bytes == <<>> ->
+                {reply, Reply} when Leftovers == <<>> ->
                     {ok, Reply};
-                {exception, #'TApplicationException'{}} when Bytes == <<>> ->
+                {exception, #'TApplicationException'{}} when Leftovers == <<>> ->
                     {error, {system, ?SERVER_VIOLATION_ERROR}};
-                {exception, Exception} when Bytes == <<>> ->
+                {exception, Exception} when Leftovers == <<>> ->
                     {error, {business, Exception}};
                 _ ->
-                    {error, {excess_response_body, Bytes, Result}}
+                    {error, {excess_response_body, Leftovers, Result}}
             end;
         {error, _} = Error ->
             Error
     end.
 
-%% erlfmt-ignore
--spec send_call(?CODEC:buffer(), options(), woody_state:st()) ->
-    {ok, binary()} | {error, {system, _}}.
+read_result(thrift_client_codec, Buffer, Service, Function, SeqId) ->
+    thrift_client_codec:read_function_result(
+        Buffer,
+        thrift_strict_binary_codec,
+        Service,
+        Function,
+        SeqId
+    );
+read_result(Codec, Buffer, Service, Function, SeqId) ->
+    Codec:read_result(Buffer, Service, Function, SeqId).
 
+-spec send_call(iodata(), options(), woody_state:st()) ->
+    {ok, iodata()} | {error, {system, _}}.
 send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
     Context = woody_state:get_context(WoodyState),
     TransportOpts = get_transport_opts(Opts),
