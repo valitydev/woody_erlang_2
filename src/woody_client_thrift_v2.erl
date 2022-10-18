@@ -16,7 +16,7 @@
     event_handler := woody:ev_handlers(),
     transport_opts => transport_options(),
     resolver_opts => woody_resolver:options(),
-    codec => module(),
+    codec => woody_client_codec:codec(),
     protocol => thrift,
     transport => http
 }.
@@ -51,10 +51,10 @@ call({Service, Function, Args}, Opts, WoodyState) ->
     ClientCodec = maps:get(codec, Opts, thrift_client_codec),
     WoodyState1 = woody_state:add_ev_meta(
         #{
-            service => get_service_name(ClientCodec, Service),
+            service => woody_client_codec:get_service_name(ClientCodec, Service),
             service_schema => Service,
             function => Function,
-            type => get_rpc_type(ClientCodec, Service, Function),
+            type => woody_client_codec:get_rpc_type(ClientCodec, Service, Function),
             args => Args,
             codec => ClientCodec,
             deadline => woody_context:get_deadline(WoodyContext),
@@ -64,16 +64,6 @@ call({Service, Function, Args}, Opts, WoodyState) ->
     ),
     _ = log_event(?EV_CALL_SERVICE, WoodyState1, #{}),
     do_call(ClientCodec, Service, Function, Args, Opts, WoodyState1).
-
-get_service_name(thrift_client_codec, {_Module, Service}) ->
-    Service;
-get_service_name(Codec, Service) ->
-    Codec:get_service_name(Service).
-
-get_rpc_type(thrift_client_codec, Service, Function) ->
-    woody_util:get_rpc_type(Service, Function);
-get_rpc_type(Codec, Service, Function) ->
-    Codec:get_rpc_type(Service, Function).
 
 %%
 %% Internal functions
@@ -88,11 +78,19 @@ get_rpc_type(Codec, Service, Function) ->
 -define(ERROR_RESP_HEADER, <<"parse http response headers error">>).
 -define(BAD_RESP_HEADER, <<"reason unknown due to bad ", ?HEADER_PREFIX/binary, "-error- headers">>).
 
--define(SERVER_VIOLATION_ERROR,
+-define(APPLICATION_EXCEPTION_ERROR,
     {external, result_unexpected, <<
         "server violated thrift protocol: "
         "sent TApplicationException (unknown exception) with http code 200"
     >>}
+).
+
+-define(EXCESS_BODY_ERROR(Bytes, Result),
+    {external, result_unexpected,
+        genlib:format(
+            "server violated thrift protocol: excess ~p bytes in response: ~p",
+            [byte_size(Bytes), Result]
+        )}
 ).
 
 -spec get_transport_opts(options()) -> woody_client_thrift_http_transport:transport_options().
@@ -107,7 +105,7 @@ get_resolver_opts(Opts) ->
     woody_client:result().
 do_call(Codec, Service, Function, Args, Opts, WoodyState) ->
     Result =
-        case write_call(Codec, <<>>, Service, Function, Args, 0) of
+        case woody_client_codec:write_call(Codec, <<>>, Service, Function, Args, 0) of
             {ok, Buffer1} ->
                 case send_call(Buffer1, Opts, WoodyState) of
                     {ok, Response} ->
@@ -121,48 +119,25 @@ do_call(Codec, Service, Function, Args, Opts, WoodyState) ->
     log_result(Result, WoodyState),
     map_result(Result).
 
-write_call(thrift_client_codec, Buffer, Service, Function, Args, SeqId) ->
-    thrift_client_codec:write_function_call(
-        Buffer,
-        thrift_strict_binary_codec,
-        Service,
-        Function,
-        Args,
-        SeqId
-    );
-write_call(Codec, Buffer, Service, Function, Args, SeqId) ->
-    Codec:write_call(Buffer, Service, Function, Args, SeqId).
-
 -spec handle_result(module(), woody:service(), woody:func(), binary()) -> _Result.
 handle_result(Codec, Service, Function, Response) ->
-    case read_result(Codec, Response, Service, Function, 0) of
-        {ok, Result, Leftovers} ->
+    case woody_client_codec:read_result(Codec, Response, Service, Function, 0) of
+        {ok, Result, <<>>} ->
             case Result of
-                ok when Leftovers == <<>> ->
+                ok ->
                     {ok, ok};
-                {reply, Reply} when Leftovers == <<>> ->
+                {reply, Reply} ->
                     {ok, Reply};
-                {exception, #'TApplicationException'{}} when Leftovers == <<>> ->
-                    {error, {system, ?SERVER_VIOLATION_ERROR}};
-                {exception, Exception} when Leftovers == <<>> ->
-                    {error, {business, Exception}};
-                _ ->
-                    {error, {excess_response_body, Leftovers, Result}}
+                {exception, #'TApplicationException'{}} ->
+                    {error, {system, ?APPLICATION_EXCEPTION_ERROR}};
+                {exception, Exception} ->
+                    {error, {business, Exception}}
             end;
+        {ok, Result, Leftovers} ->
+            {error, ?EXCESS_BODY_ERROR(Leftovers, Result)};
         {error, _} = Error ->
             Error
     end.
-
-read_result(thrift_client_codec, Buffer, Service, Function, SeqId) ->
-    thrift_client_codec:read_function_result(
-        Buffer,
-        thrift_strict_binary_codec,
-        Service,
-        Function,
-        SeqId
-    );
-read_result(Codec, Buffer, Service, Function, SeqId) ->
-    Codec:read_result(Buffer, Service, Function, SeqId).
 
 -spec send_call(iodata(), options(), woody_state:st()) ->
     {ok, iodata()} | {error, {system, _}}.

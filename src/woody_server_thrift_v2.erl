@@ -71,10 +71,12 @@
 
 -export_type([options/0]).
 
+-type codec() :: woody_server_codec:codec().
+
 -type route_opts() :: #{
     handlers := list(woody:http_handler(woody:th_handler())),
     event_handler := woody:ev_handlers(),
-    codec => module(),
+    codec => codec(),
     protocol => thrift,
     transport => http,
     read_body_opts => read_body_opts(),
@@ -476,30 +478,18 @@ do_get_body(Body, Req, Opts) ->
             do_get_body(<<Body/binary, Body1/binary>>, Req1, Opts)
     end.
 
--spec handle_request(module(), woody:http_body(), woody:th_handler(), woody_state:st(), cowboy_req:req()) ->
+-spec handle_request(codec(), woody:http_body(), woody:th_handler(), woody_state:st(), cowboy_req:req()) ->
     cowboy_req:req().
 handle_request(Codec, Body, ThriftHandler = {Service, _}, WoodyState, Req) ->
     ok = woody_monitor_h:set_event(?EV_SERVICE_HANDLER_RESULT, Req),
-    case read_call(Codec, Body, Service) of
-        {ok, SeqId, Invocation, Leftovers} ->
-            case Leftovers of
-                <<>> ->
-                    handle_invocation(Codec, SeqId, Invocation, ThriftHandler, Req, WoodyState);
-                Bytes ->
-                    handle_decode_error({excess_response_body, Bytes, Invocation}, Req, WoodyState)
-            end;
+    case woody_server_codec:read_call(Codec, Body, Service) of
+        {ok, SeqId, Invocation, <<>>} ->
+            handle_invocation(Codec, SeqId, Invocation, ThriftHandler, Req, WoodyState);
+        {ok, _SeqId, Invocation, Leftovers} ->
+            handle_error(client_error({excess_request_bytes, Leftovers, Invocation}), Req, WoodyState);
         {error, Reason} ->
             handle_decode_error(Reason, Req, WoodyState)
     end.
-
-read_call(thrift_processor_codec, Buffer, Service) ->
-    thrift_processor_codec:read_function_call(
-        Buffer,
-        thrift_strict_binary_codec,
-        Service
-    );
-read_call(Codec, Buffer, Service) ->
-    Codec:read_call(Buffer, Service).
 
 -spec handle_decode_error(_Reason, cowboy_req:req(), woody_state:st()) -> cowboy_req:req().
 handle_decode_error(Reason, Req, WoodyState) ->
@@ -529,30 +519,31 @@ client_error({bad_function_name, FName}) ->
 client_error(Reason) ->
     {client, woody_util:to_binary([<<"thrift decode error: ">>, woody_error:format_details(Reason)])}.
 
--spec handle_invocation(module(), integer(), Invocation, woody:th_handler(), cowboy_req:req(), woody_state:st()) ->
+-spec handle_invocation(codec(), integer(), Invocation, woody:th_handler(), cowboy_req:req(), woody_state:st()) ->
     cowboy_req:req()
 when
-    Invocation :: {call | oneway, woody:func(), woody:args()}.
-handle_invocation(Codec, SeqId, {ReplyType, Function, Args}, {Service, Handler}, Req, WoodyState) ->
-    WoodyState1 = add_ev_meta(WoodyState, Codec, Service, ReplyType, Function, Args),
-    case ReplyType of
+    Invocation :: woody_server_codec:invocation().
+handle_invocation(Codec, SeqId, {RpcType, Function, Args}, {Service, Handler}, Req, WoodyState) ->
+    WoodyState1 = add_ev_meta(WoodyState, Codec, Service, RpcType, Function, Args),
+    case RpcType of
         call ->
-            Result = handle_call(Handler, Service, Function, Args, WoodyState1),
+            Result = handle_call(Codec, Handler, Service, Function, Args, WoodyState1),
             handle_result(Codec, Result, Service, Function, SeqId, Req, WoodyState1);
-        oneway ->
+        cast ->
             Req1 = reply(200, Req, WoodyState1),
-            _Result = handle_call(Handler, Service, Function, Args, WoodyState1),
+            _Result = handle_call(Codec, Handler, Service, Function, Args, WoodyState1),
             Req1
     end.
 
 -type call_result() ::
     ok
     | {reply, woody:result()}
-    | {exception, _TypeName, _Exception :: woody:result()}
+    | {exception, _Name :: binary(), _Exception :: woody:result()}
     | {error, {system, woody_error:system_error()}}.
 
--spec handle_call(woody:handler(_), woody:service(), woody:func(), woody:args(), woody_state:st()) -> call_result().
-handle_call(Handler, Service, Function, Args, WoodyState) ->
+-spec handle_call(codec(), woody:handler(_), woody:service(), woody:func(), woody:args(), woody_state:st()) ->
+    call_result().
+handle_call(Codec, Handler, Service, Function, Args, WoodyState) ->
     try
         Result = call_handler(Handler, Function, Args, WoodyState),
         _ = handle_event(
@@ -563,41 +554,41 @@ handle_call(Handler, Service, Function, Args, WoodyState) ->
         case Result of
             {ok, Reply} ->
                 {reply, Reply};
-            {exception, TypeName, FunctionException} ->
-                process_handler_exception(TypeName, FunctionException, WoodyState)
+            {exception, _Name, BusinessException} ->
+                _ = handle_event(
+                    ?EV_SERVICE_HANDLER_RESULT,
+                    WoodyState,
+                    #{status => error, class => business, result => BusinessException}
+                ),
+                Result
         end
     catch
         throw:Exception:Stack ->
-            process_handler_throw(Exception, Stack, Service, Function, WoodyState);
+            process_handler_throw(Codec, Exception, Stack, Service, Function, WoodyState);
         Class:Reason:Stack ->
             process_handler_error(Class, Reason, Stack, WoodyState)
     end.
 
 -spec call_handler(woody:handler(_), woody:func(), woody:args(), woody_state:st()) ->
-    {ok, woody:result()} | {exception, _TypeName, woody:result()} | no_return().
+    {ok, woody:result()} | {exception, _Name, woody:result()} | no_return().
 call_handler(Handler, Function, Args, WoodyState) ->
     woody_server_thrift_handler:handle_function(Handler, Function, Args, WoodyState).
 
--spec process_handler_throw(_Exception, woody_error:stack(), woody:service(), woody:func(), woody_state:st()) ->
-    {exception, _TypeName, woody:result()}
+-spec process_handler_throw(codec(), _Ex, woody_error:stack(), woody:service(), woody:func(), woody_state:st()) ->
+    {exception, _Name, woody:result()}
     | {error, {system, woody_error:system_error()}}.
-process_handler_throw(Exception, Stack, Service, Function, WoodyState) ->
-    case thrift_processor_codec:match_exception(Service, Function, Exception) of
-        {ok, TypeName} ->
-            process_handler_exception(TypeName, Exception, WoodyState);
+process_handler_throw(Codec, ThrownException, Stack, Service, Function, WoodyState) ->
+    case woody_server_codec:catch_business_exception(Codec, Service, Function, ThrownException) of
+        {exception, _Name, _TypedException} = Result ->
+            _ = handle_event(
+                ?EV_SERVICE_HANDLER_RESULT,
+                WoodyState,
+                #{status => error, class => business, result => ThrownException}
+            ),
+            Result;
         {error, _} ->
-            process_handler_error(throw, Exception, Stack, WoodyState)
+            process_handler_error(throw, ThrownException, Stack, WoodyState)
     end.
-
--spec process_handler_exception(_TypeName, _Exception, woody_state:st()) ->
-    {exception, _TypeName, woody:result()}.
-process_handler_exception(TypeName, Exception, WoodyState) ->
-    _ = handle_event(
-        ?EV_SERVICE_HANDLER_RESULT,
-        WoodyState,
-        #{status => error, class => business, result => Exception}
-    ),
-    {exception, TypeName, Exception}.
 
 -spec process_handler_error(_Class :: atom(), _Reason, woody_error:stack(), woody_state:st()) ->
     {error, {system, woody_error:system_error()}}.
@@ -622,41 +613,21 @@ process_handler_error(Class, Reason, Stack, WoodyState) ->
 when
     Req :: cowboy_req:req().
 handle_result(Codec, Res, Service, Function, SeqId, Req, WoodyState) when Res == ok; element(1, Res) == reply ->
-    case write_result(Codec, <<>>, Service, Function, Res, SeqId) of
+    case woody_server_codec:write_result(Codec, <<>>, Service, Function, Res, SeqId) of
         {ok, Response} ->
             reply(200, cowboy_req:set_resp_body(Response, Req), WoodyState);
         {error, Reason} ->
             handle_encode_error(Reason, Req, WoodyState)
     end;
-handle_result(Codec, Res = {exception, TypeName, Exception}, Service, Function, SeqId, Req, WoodyState) ->
-    case write_result(Codec, <<>>, Service, Function, Res, SeqId) of
+handle_result(Codec, {exception, Name, _Exception} = Result, Service, Function, SeqId, Req, WoodyState) ->
+    case woody_server_codec:write_result(Codec, <<>>, Service, Function, Result, SeqId) of
         {ok, Response} ->
-            ExceptionName = get_exception_name(Codec, TypeName, Exception),
-            handle_error({business, {ExceptionName, Response}}, Req, WoodyState);
+            handle_error({business, {genlib:to_binary(Name), Response}}, Req, WoodyState);
         {error, Reason} ->
             handle_encode_error(Reason, Req, WoodyState)
     end;
 handle_result(_Codec, {error, Error}, _Service, _Function, _SeqId, Req, WoodyState) ->
     handle_error(Error, Req, WoodyState).
-
-write_result(thrift_processor_codec, Buffer, Service, Function, Res, SeqId) ->
-    thrift_processor_codec:write_function_result(
-        Buffer,
-        thrift_strict_binary_codec,
-        Service,
-        Function,
-        Res,
-        SeqId
-    );
-write_result(Codec, Buffer, Service, Function, Res, SeqId) ->
-    Codec:write_result(Buffer, Service, Function, Res, SeqId).
-
-get_exception_name(thrift_processor_codec, {{struct, exception, {_Mod, Name}}, _}, _) ->
-    genlib:to_binary(Name);
-get_exception_name(thrift_processor_codec, _TypeName, Exception) ->
-    genlib:to_binary(element(1, Exception));
-get_exception_name(_Codec, TypeName, _Exception) ->
-    genlib:to_binary(TypeName).
 
 -spec handle_encode_error(_Reason, cowboy_req:req(), woody_state:st()) -> cowboy_req:req().
 handle_encode_error(Reason, Req, WoodyState) ->
@@ -671,26 +642,18 @@ handle_encode_error(Reason, Req, WoodyState) ->
     Error = {internal, result_unexpected, format_unexpected_error(error, Reason, [])},
     handle_error({system, Error}, Req, WoodyState).
 
-add_ev_meta(WoodyState, Codec, Service, ReplyType, Function, Args) ->
+add_ev_meta(WoodyState, Codec, Service, RpcType, Function, Args) ->
     woody_state:add_ev_meta(
         #{
-            service => get_service_name(Codec, Service),
+            service => woody_server_codec:get_service_name(Codec, Service),
             service_schema => Service,
             function => Function,
             args => Args,
-            type => get_rpc_reply_type(ReplyType),
+            type => RpcType,
             deadline => woody_context:get_deadline(woody_state:get_context(WoodyState))
         },
         WoodyState
     ).
-
-get_service_name(thrift_processor_codec, {_Module, Service}) ->
-    Service;
-get_service_name(Codec, Service) ->
-    Codec:get_service_name(Service).
-
-get_rpc_reply_type(oneway) -> cast;
-get_rpc_reply_type(call) -> call.
 
 format_unexpected_error(Class, Reason, Stack) ->
     woody_util:to_binary(
