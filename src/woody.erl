@@ -34,10 +34,10 @@
 
 %% Thrift
 -type service_name() :: atom().
--type service() :: {module(), service_name()}.
+-type service() :: {module(), service_name()} | any().
 -type context() :: woody_context:ctx().
 -type func() :: atom().
--type args() :: tuple().
+-type args() :: tuple() | any().
 -type request() :: {service(), func(), args()}.
 -type result() :: _.
 -type th_handler() :: {service(), handler(options())}.
