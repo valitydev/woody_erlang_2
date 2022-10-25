@@ -16,6 +16,7 @@
     event_handler := woody:ev_handlers(),
     transport_opts => transport_options(),
     resolver_opts => woody_resolver:options(),
+    codec => woody_client_codec:codec(),
     protocol => thrift,
     transport => http
 }.
@@ -45,22 +46,24 @@ child_spec(Options) ->
     hackney_pool:child_spec(Name, maps:to_list(TransportOpts)).
 
 -spec call(woody:request(), options(), woody_state:st()) -> woody_client:result().
-call({Service = {_, ServiceName}, Function, Args}, Opts, WoodyState) ->
+call({Service, Function, Args}, Opts, WoodyState) ->
     WoodyContext = woody_state:get_context(WoodyState),
+    ClientCodec = maps:get(codec, Opts, thrift_client_codec),
     WoodyState1 = woody_state:add_ev_meta(
         #{
-            service => ServiceName,
+            service => woody_client_codec:get_service_name(ClientCodec, Service),
             service_schema => Service,
             function => Function,
-            type => woody_util:get_rpc_type(Service, Function),
+            type => woody_client_codec:get_rpc_type(ClientCodec, Service, Function),
             args => Args,
+            codec => ClientCodec,
             deadline => woody_context:get_deadline(WoodyContext),
             metadata => woody_context:get_meta(WoodyContext)
         },
         WoodyState
     ),
     _ = log_event(?EV_CALL_SERVICE, WoodyState1, #{}),
-    do_call(Service, Function, Args, Opts, WoodyState1).
+    do_call(ClientCodec, Service, Function, Args, Opts, WoodyState1).
 
 %%
 %% Internal functions
@@ -71,16 +74,23 @@ call({Service = {_, ServiceName}, Function, Args}, Opts, WoodyState) ->
 -type http_headers() :: [{binary(), binary()}].
 -type header_parse_value() :: none | woody:http_header_val().
 
--define(CODEC, thrift_strict_binary_codec).
 -define(ERROR_RESP_BODY, <<"parse http response body error">>).
 -define(ERROR_RESP_HEADER, <<"parse http response headers error">>).
 -define(BAD_RESP_HEADER, <<"reason unknown due to bad ", ?HEADER_PREFIX/binary, "-error- headers">>).
 
--define(SERVER_VIOLATION_ERROR,
+-define(APPLICATION_EXCEPTION_ERROR,
     {external, result_unexpected, <<
         "server violated thrift protocol: "
         "sent TApplicationException (unknown exception) with http code 200"
     >>}
+).
+
+-define(EXCESS_BODY_ERROR(Bytes, Result),
+    {external, result_unexpected,
+        genlib:format(
+            "server violated thrift protocol: excess ~p bytes in response: ~p",
+            [byte_size(Bytes), Result]
+        )}
 ).
 
 -spec get_transport_opts(options()) -> woody_client_thrift_http_transport:transport_options().
@@ -91,15 +101,15 @@ get_transport_opts(Opts) ->
 get_resolver_opts(Opts) ->
     maps:get(resolver_opts, Opts, #{}).
 
--spec do_call(woody:service(), woody:func(), woody:args(), options(), woody_state:st()) -> woody_client:result().
-do_call(Service, Function, Args, Opts, WoodyState) ->
-    Buffer = ?CODEC:new(),
+-spec do_call(module(), woody:service(), woody:func(), woody:args(), options(), woody_state:st()) ->
+    woody_client:result().
+do_call(Codec, Service, Function, Args, Opts, WoodyState) ->
     Result =
-        case thrift_client_codec:write_function_call(Buffer, ?CODEC, Service, Function, Args, 0) of
+        case woody_client_codec:write_call(Codec, <<>>, Service, Function, Args, 0) of
             {ok, Buffer1} ->
                 case send_call(Buffer1, Opts, WoodyState) of
                     {ok, Response} ->
-                        handle_result(Service, Function, Response);
+                        handle_result(Codec, Service, Function, Response);
                     Error ->
                         Error
                 end;
@@ -109,32 +119,28 @@ do_call(Service, Function, Args, Opts, WoodyState) ->
     log_result(Result, WoodyState),
     map_result(Result).
 
--spec handle_result(woody:service(), woody:func(), binary()) -> _Result.
-handle_result(Service, Function, Response) ->
-    Buffer = ?CODEC:new(Response),
-    case thrift_client_codec:read_function_result(Buffer, ?CODEC, Service, Function, 0) of
-        {ok, Result, Leftovers} ->
-            Bytes = ?CODEC:close(Leftovers),
+-spec handle_result(module(), woody:service(), woody:func(), binary()) -> _Result.
+handle_result(Codec, Service, Function, Response) ->
+    case woody_client_codec:read_result(Codec, Response, Service, Function, 0) of
+        {ok, Result, <<>>} ->
             case Result of
-                ok when Bytes == <<>> ->
+                ok ->
                     {ok, ok};
-                {reply, Reply} when Bytes == <<>> ->
+                {reply, Reply} ->
                     {ok, Reply};
-                {exception, #'TApplicationException'{}} when Bytes == <<>> ->
-                    {error, {system, ?SERVER_VIOLATION_ERROR}};
-                {exception, Exception} when Bytes == <<>> ->
-                    {error, {business, Exception}};
-                _ ->
-                    {error, {excess_response_body, Bytes, Result}}
+                {exception, #'TApplicationException'{}} ->
+                    {error, {system, ?APPLICATION_EXCEPTION_ERROR}};
+                {exception, Exception} ->
+                    {error, {business, Exception}}
             end;
+        {ok, Result, Leftovers} ->
+            {error, ?EXCESS_BODY_ERROR(Leftovers, Result)};
         {error, _} = Error ->
             Error
     end.
 
-%% erlfmt-ignore
--spec send_call(?CODEC:buffer(), options(), woody_state:st()) ->
-    {ok, binary()} | {error, {system, _}}.
-
+-spec send_call(iodata(), options(), woody_state:st()) ->
+    {ok, iodata()} | {error, {system, _}}.
 send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
     Context = woody_state:get_context(WoodyState),
     TransportOpts = get_transport_opts(Opts),
