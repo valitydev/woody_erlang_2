@@ -124,7 +124,7 @@ send(Url, Body, Options, ResOpts, WoodyState) ->
             % MSPF-416: We resolve url host to an ip here to prevent
             % reusing keep-alive connections to dead hosts
             case woody_resolver:resolve_url(Url, WoodyState, ResOpts) of
-                {ok, {OldUrl, NewUrl}} ->
+                {ok, {OldUrl, NewUrl}, _ConnectOpts} ->
                     Headers = add_host_header(OldUrl, make_woody_headers(Context)),
                     Options1 = set_defaults(Options),
                     Options2 = set_timeouts(Options1, Context),

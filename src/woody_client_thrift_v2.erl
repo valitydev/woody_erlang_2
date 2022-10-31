@@ -154,11 +154,16 @@ send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
             % MSPF-416: We resolve url host to an ip here to prevent
             % reusing keep-alive connections to dead hosts
             case woody_resolver:resolve_url(Url, WoodyState, ResolverOpts) of
-                {ok, {OldUrl, NewUrl}} ->
+                {ok, {OldUrl, NewUrl}, ConnectOpts} ->
                     Headers = add_host_header(OldUrl, make_woody_headers(Context)),
                     TransportOpts1 = set_defaults(TransportOpts),
                     TransportOpts2 = set_timeouts(TransportOpts1, Context),
-                    Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts2)),
+                    % NOTE
+                    % This is to ensure hackney won't try to resolve original hostname again in
+                    % `set_tls_overrides/2`.
+                    TransportOpts3 = append_connect_opts(TransportOpts2, ConnectOpts),
+                    TransportOpts4 = set_tls_overrides(TransportOpts3, OldUrl),
+                    Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts4)),
                     handle_response(Result, WoodyState);
                 {error, Reason} ->
                     Error = {error, {resolve_failed, Reason}},
@@ -202,6 +207,19 @@ calc_timeouts(Timeout) ->
         T ->
             T
     end.
+
+append_connect_opts(Options, ConnectOpts) ->
+    Options#{connect_options => maps:get(connect_options, Options, []) ++ ConnectOpts}.
+
+set_tls_overrides(Options = #{ssl_options := _}, _OrigUrl) ->
+    Options;
+set_tls_overrides(Options, #hackney_url{scheme = https, host = OrigHost}) ->
+    % NOTE
+    % Beware, we're abusing implementation details here.
+    SslOpts = hackney_connection:connect_options(hackney_ssl, OrigHost, maps:to_list(Options)),
+    Options#{ssl_options => SslOpts};
+set_tls_overrides(Options, #hackney_url{scheme = _}) ->
+    Options.
 
 -spec make_woody_headers(woody_context:ctx()) -> http_headers().
 make_woody_headers(Context) ->
