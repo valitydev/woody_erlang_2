@@ -42,7 +42,7 @@ resolve_url(Url, WoodyState) ->
     resolve_url(Url, WoodyState, #{}).
 
 -spec resolve_url(url(), woody_state:st(), options()) ->
-    {ok, resolve_result()}
+    {ok, resolve_result(), [gen_tcp:connect_option()]}
     | {error, resolve_error()}.
 resolve_url(Url, WoodyState, Opts) when is_list(Url) ->
     resolve_url(unicode:characters_to_binary(Url), WoodyState, Opts);
