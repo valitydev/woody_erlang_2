@@ -158,7 +158,8 @@ send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
                     Headers = add_host_header(OldUrl, make_woody_headers(Context)),
                     TransportOpts1 = set_defaults(TransportOpts),
                     TransportOpts2 = set_timeouts(TransportOpts1, Context),
-                    Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts2)),
+                    TransportOpts3 = set_tls_overrides(TransportOpts2, OldUrl),
+                    Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts3)),
                     handle_response(Result, WoodyState);
                 {error, Reason} ->
                     Error = {error, {resolve_failed, Reason}},
@@ -202,6 +203,15 @@ calc_timeouts(Timeout) ->
         T ->
             T
     end.
+
+set_tls_overrides(Options = #{ssl_options := _}, _OrigUrl) ->
+    Options;
+set_tls_overrides(Options, #hackney_url{scheme = https, host = OrigHost}) ->
+    Options#{
+        ssl_options => hackney_connection:merge_ssl_opts(OrigHost, maps:to_list(Options))
+    };
+set_tls_overrides(Options, #hackney_url{scheme = _}) ->
+    Options.
 
 -spec make_woody_headers(woody_context:ctx()) -> http_headers().
 make_woody_headers(Context) ->
