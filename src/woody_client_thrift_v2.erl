@@ -159,8 +159,8 @@ send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
                     TransportOpts1 = set_defaults(TransportOpts),
                     TransportOpts2 = set_timeouts(TransportOpts1, Context),
                     TransportOpts3 = append_connect_opts(TransportOpts2, ConnectOpts),
-                    TransportOpts3 = set_tls_overrides(TransportOpts3, OldUrl),
-                    Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts3)),
+                    TransportOpts4 = set_tls_overrides(TransportOpts3, OldUrl),
+                    Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts4)),
                     handle_response(Result, WoodyState);
                 {error, Reason} ->
                     Error = {error, {resolve_failed, Reason}},
