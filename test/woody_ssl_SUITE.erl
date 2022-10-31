@@ -23,7 +23,8 @@
 -export([
     client_wo_cert_test/1,
     valid_client_cert_test/1,
-    invalid_client_cert_test/1
+    invalid_client_cert_test/1,
+    valid_cert_external_server/1
 ]).
 
 %% woody_server_thrift_handler callback
@@ -58,7 +59,8 @@ all() ->
     [
         {group, 'tlsv1.3'},
         {group, 'tlsv1.2'},
-        {group, 'tlsv1.1'}
+        {group, 'tlsv1.1'},
+        valid_cert_external_server
     ].
 
 -spec groups() -> [{group_name(), list(), [case_name()]}].
@@ -139,6 +141,30 @@ invalid_client_cert_test(C) ->
             ok;
         error:{woody_error, {internal, result_unexpected, Reason}} ->
             {match, _} = re:run(Reason, <<"^{tls_alert,[\"\{]unknown[ _]ca.*$">>, [])
+    end.
+
+-spec valid_cert_external_server(config()) -> _.
+valid_cert_external_server(_C) ->
+    % NOTE
+    % This testcase needs internet connectivity.
+    % This testcase relies on correct TLS setup and implementation on example.org servers.
+    Url = <<"https://example.org/just-testing-tls-nevermind">>,
+    Context = woody_context:new(to_binary(?FUNCTION_NAME)),
+    Service = {?THRIFT_DEFS, 'Weapons'},
+    Options = #{
+        url => Url,
+        event_handler => {woody_ct_event_h, {client, external}}
+    },
+    try
+        _ = woody_client:call({Service, get_weapon, {<<"Example">>, <<>>}}, Options, Context),
+        error(unreachable)
+    catch
+        error:{woody_error, {
+            external,
+            result_unexpected,
+            <<"This server does not implement the woody protocol", _/binary>>
+        }} ->
+            ok
     end.
 
 -spec client_ssl_opts(atom()) -> [ssl:tls_client_option()].
