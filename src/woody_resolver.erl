@@ -36,7 +36,7 @@
 %%
 
 -spec resolve_url(url(), woody_state:st()) ->
-    {ok, resolve_result()}
+    {ok, resolve_result(), [gen_tcp:connect_option()]}
     | {error, resolve_error()}.
 resolve_url(Url, WoodyState) ->
     resolve_url(Url, WoodyState, #{}).
@@ -61,21 +61,28 @@ parse_url(Url) ->
 resolve_parsed_url(ParsedUrl = #hackney_url{}, WoodyState, Opts) ->
     case inet:parse_address(ParsedUrl#hackney_url.host) of
         % url host is already an ip, move on
-        {ok, _} -> {ok, {ParsedUrl, ParsedUrl}};
-        {error, _} -> do_resolve_url(ParsedUrl, WoodyState, Opts)
+        {ok, IpAddr} ->
+            IpFamily =
+                case tuple_size(IpAddr) of
+                    4 -> inet;
+                    8 -> inet6
+                end,
+            {ok, {ParsedUrl, ParsedUrl}, [IpFamily]};
+        {error, _} ->
+            do_resolve_url(ParsedUrl, WoodyState, Opts)
     end.
 
 do_resolve_url(ParsedUrl, WoodyState, Opts) ->
     UnresolvedHost = ParsedUrl#hackney_url.host,
     _ = log_event(?EV_CLIENT_RESOLVE_BEGIN, WoodyState, #{host => UnresolvedHost}),
     case lookup_host(UnresolvedHost, Opts) of
-        {ok, {IpAddr, _} = AddrInfo} ->
+        {ok, {IpAddr, IpFamily} = AddrInfo} ->
             _ = log_event(?EV_CLIENT_RESOLVE_RESULT, WoodyState, #{
                 status => ok,
                 host => UnresolvedHost,
                 address => inet:ntoa(IpAddr)
             }),
-            {ok, {ParsedUrl, replace_host(ParsedUrl, AddrInfo)}};
+            {ok, {ParsedUrl, replace_host(ParsedUrl, AddrInfo)}, [IpFamily]};
         {error, Reason} ->
             _ = log_event(?EV_CLIENT_RESOLVE_RESULT, WoodyState, #{
                 status => error,

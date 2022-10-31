@@ -154,11 +154,12 @@ send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
             % MSPF-416: We resolve url host to an ip here to prevent
             % reusing keep-alive connections to dead hosts
             case woody_resolver:resolve_url(Url, WoodyState, ResolverOpts) of
-                {ok, {OldUrl, NewUrl}} ->
+                {ok, {OldUrl, NewUrl}, ConnectOpts} ->
                     Headers = add_host_header(OldUrl, make_woody_headers(Context)),
                     TransportOpts1 = set_defaults(TransportOpts),
                     TransportOpts2 = set_timeouts(TransportOpts1, Context),
-                    TransportOpts3 = set_tls_overrides(TransportOpts2, OldUrl),
+                    TransportOpts3 = append_connect_opts(TransportOpts2, ConnectOpts),
+                    TransportOpts3 = set_tls_overrides(TransportOpts3, OldUrl),
                     Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts3)),
                     handle_response(Result, WoodyState);
                 {error, Reason} ->
@@ -204,11 +205,14 @@ calc_timeouts(Timeout) ->
             T
     end.
 
+append_connect_opts(Options, ConnectOpts) ->
+    Options#{connect_options => maps:get(connect_options, Options, []) ++ ConnectOpts}.
+
 set_tls_overrides(Options = #{ssl_options := _}, _OrigUrl) ->
     Options;
 set_tls_overrides(Options, #hackney_url{scheme = https, host = OrigHost}) ->
     Options#{
-        ssl_options => hackney_connection:merge_ssl_opts(OrigHost, maps:to_list(Options))
+        ssl_options => hackney_connection:connect_options(hackney_ssl, OrigHost, maps:to_list(Options))
     };
 set_tls_overrides(Options, #hackney_url{scheme = _}) ->
     Options.
