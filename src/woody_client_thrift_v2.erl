@@ -158,6 +158,9 @@ send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
                     Headers = add_host_header(OldUrl, make_woody_headers(Context)),
                     TransportOpts1 = set_defaults(TransportOpts),
                     TransportOpts2 = set_timeouts(TransportOpts1, Context),
+                    % NOTE
+                    % This is to ensure hackney won't try to resolve original hostname again in
+                    % `set_tls_overrides/2`.
                     TransportOpts3 = append_connect_opts(TransportOpts2, ConnectOpts),
                     TransportOpts4 = set_tls_overrides(TransportOpts3, OldUrl),
                     Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts4)),
@@ -211,9 +214,10 @@ append_connect_opts(Options, ConnectOpts) ->
 set_tls_overrides(Options = #{ssl_options := _}, _OrigUrl) ->
     Options;
 set_tls_overrides(Options, #hackney_url{scheme = https, host = OrigHost}) ->
-    Options#{
-        ssl_options => hackney_connection:connect_options(hackney_ssl, OrigHost, maps:to_list(Options))
-    };
+    % NOTE
+    % Beware, we're abusing implementation details here.
+    SslOpts = hackney_connection:connect_options(hackney_ssl, OrigHost, maps:to_list(Options)),
+    Options#{ssl_options => SslOpts};
 set_tls_overrides(Options, #hackney_url{scheme = _}) ->
     Options.
 
