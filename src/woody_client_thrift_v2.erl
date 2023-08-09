@@ -155,7 +155,8 @@ send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
             % reusing keep-alive connections to dead hosts
             case woody_resolver:resolve_url(Url, WoodyState, ResolverOpts) of
                 {ok, {OldUrl, NewUrl}, ConnectOpts} ->
-                    Headers = add_host_header(OldUrl, make_woody_headers(Context)),
+                    Headers0 = add_host_header(OldUrl, make_woody_headers(Context)),
+                    Headers1 = otel_propagator_text_map:inject(Headers0),
                     TransportOpts1 = set_defaults(TransportOpts),
                     TransportOpts2 = set_timeouts(TransportOpts1, Context),
                     % NOTE
@@ -163,7 +164,7 @@ send_call(Buffer, #{url := Url} = Opts, WoodyState) ->
                     % `set_tls_overrides/2`.
                     TransportOpts3 = append_connect_opts(TransportOpts2, ConnectOpts),
                     TransportOpts4 = set_tls_overrides(TransportOpts3, OldUrl),
-                    Result = hackney:request(post, NewUrl, Headers, Buffer, maps:to_list(TransportOpts4)),
+                    Result = hackney:request(post, NewUrl, Headers1, Buffer, maps:to_list(TransportOpts4)),
                     handle_response(Result, WoodyState);
                 {error, Reason} ->
                     Error = {error, {resolve_failed, Reason}},

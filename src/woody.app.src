@@ -11,7 +11,8 @@
         hackney,
         thrift,
         gproc,
-        cache
+        cache,
+        opentelemetry_api
     ]},
     {env, [
         {enable_debug, false}

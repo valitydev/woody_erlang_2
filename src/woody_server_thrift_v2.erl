@@ -407,6 +407,7 @@ check_deadline(Deadline, Req, State = #{url := Url, woody_state := WoodyState}) 
 
 -spec check_metadata_headers(woody:http_headers(), cowboy_req:req(), state()) -> check_result().
 check_metadata_headers(Headers, Req, State = #{woody_state := WoodyState, regexp_meta := ReMeta}) ->
+    _OtelCtx = otel_propagator_text_map:extract(maps:to_list(Headers)),
     WoodyState1 = set_metadata(find_metadata(Headers, ReMeta), WoodyState),
     {ok, Req, update_woody_state(State, WoodyState1, Req)}.
 
