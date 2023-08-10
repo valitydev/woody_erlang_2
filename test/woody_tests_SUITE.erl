@@ -113,6 +113,11 @@
 -define(WEAPON_STACK_OVERFLOW, pos_out_of_boundaries).
 -define(BAD_POWERUP_REPLY, powerup_unknown).
 
+-define(OTEL_SPAN(Name, Children), #{span := #span{name = Name}, children := Children}).
+-define(OTEL_SPAN(Name, SpanAttributes, Children), #{
+    span := #span{name = Name, attributes = SpanAttributes}, children := Children
+}).
+
 -type config() :: [{atom(), any()}].
 -type case_name() :: atom().
 -type group_name() :: atom().
@@ -363,7 +368,7 @@ setup_opentelemetry() ->
                 trace_context
             ]},
             {span_processor, simple},
-            {traces_exporter, {otel_exporter_pid, woody_ct_otel_buffer}}
+            {traces_exporter, {otel_exporter_pid, woody_ct_otel_collector}}
         ]}
     ]),
     ok = application:start(opentelemetry),
@@ -690,8 +695,41 @@ call_pass_thru_ok_test(C) ->
     Armor = <<"AntiGrav Boots">>,
     Context = make_context(<<"call_pass_thru_ok">>),
     Expect = {ok, genlib_map:get(Armor, powerups())},
+    Baggage = #{<<"service">> => <<"Powerups">>},
+    SpanName = <<"Powerups:proxy_get_powerup">>,
+    %% NOTE: `otel_baggage` uses `otel_ctx` that relies on __process dictionary__
+    ok = otel_baggage:set(Baggage),
+    Tracer = opentelemetry:get_application_tracer(?MODULE),
+    %% NOTE: Starts span and sets its context as current span in __process dictionary__
+    SpanCtx = otel_tracer:set_current_span(otel_tracer:start_span(Tracer, SpanName, #{})),
     Expect = call(Context, 'Powerups', proxy_get_powerup, {Armor, self_to_bin()}, C),
-    {ok, _} = receive_msg(Armor, Context).
+    %% NOTE: Ends span and puts context into __process dictionary__
+    _ = otel_tracer:set_current_span(otel_span:end_span(SpanCtx, undefined)),
+    {ok, _} = receive_msg(Armor, Context),
+    {ok, #{node := Root}} = woody_ct_otel_collector:get_trace(SpanCtx#span_ctx.trace_id),
+    %% Prepare otel attributes to match against
+    ProxyAttrs = mk_otel_attributes(Baggage),
+    Attrs = mk_otel_attributes(Baggage#{<<"proxied">> => <<"true">>}),
+    ?assertMatch(
+        ?OTEL_SPAN(SpanName, [
+            ?OTEL_SPAN(?EV_CLIENT_BEGIN, [
+                ?OTEL_SPAN(?EV_CALL_SERVICE, [
+                    %% Upon invocation event baggage is expected to be put in span attributes
+                    ?OTEL_SPAN(?EV_INVOKE_SERVICE_HANDLER, ProxyAttrs, [
+                        %% New client starts call here
+                        ?OTEL_SPAN(?EV_CLIENT_BEGIN, [
+                            ?OTEL_SPAN(?EV_CALL_SERVICE, [
+                                ?OTEL_SPAN(?EV_INVOKE_SERVICE_HANDLER, Attrs, [
+                                    %% Expect no child spans uphere
+                                ])
+                            ])
+                        ])
+                    ])
+                ])
+            ])
+        ]),
+        Root
+    ).
 
 call_pass_thru_except_test(C) ->
     Armor = <<"Shield Belt">>,
@@ -1002,7 +1040,7 @@ init(_) ->
     {ok,
         {
             {one_for_one, 1, 1},
-            [#{id => woody_ct_otel_buffer, start => {woody_ct_otel_buffer, start_link, []}}]
+            [#{id => woody_ct_otel_collector, start => {woody_ct_otel_collector, start_link, []}}]
         }}.
 
 %%
@@ -1032,6 +1070,8 @@ handle_function(ProxyGetPowerup, {Name, To}, Context, _Opts) when
     ProxyGetPowerup =:= proxy_get_powerup orelse
         ProxyGetPowerup =:= bad_proxy_get_powerup
 ->
+    %% NOTE: Merges baggage, requires #{binary() => binary()}
+    ok = otel_baggage:set(#{<<"proxied">> => <<"true">>}),
     % NOTE
     % Client may return `{exception, _}` tuple with some business level exception
     % here, yet handler expects us to `throw/1` them. This is expected here it
@@ -1235,50 +1275,7 @@ make_context(ReqId) ->
 
 call(Context, ServiceName, Function, Args, C) ->
     {Url, Service} = get_service_endpoint(ServiceName),
-    SpanCtx = start_span_for_call(ServiceName, Function),
-    Result = woody_client:call({Service, Function, Args}, mk_client_opts(#{url => Url}, C), Context),
-    _ = end_span_for_call(SpanCtx),
-    %% FIXME This doesn't work for passthrough cases since root span is not yet accounted for.
-    %% TODO Add assert support for v1/v2 cross testcases
-    ?assertMatch(
-        {ok, #{
-            node := #{
-                span := #span{name = _},
-                children := [
-                    #{
-                        span := #span{name = ?EV_CLIENT_BEGIN},
-                        children := [
-                            #{
-                                span := #span{name = ?EV_CALL_SERVICE},
-                                children := [
-                                    #{
-                                        span := #span{name = ?EV_INVOKE_SERVICE_HANDLER},
-                                        children := []
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        }},
-        woody_ct_otel_buffer:get_trace(SpanCtx#span_ctx.trace_id)
-    ),
-    Result.
-
-start_span_for_call(ServiceName, Function) ->
-    ServiceNameBin = atom_to_binary(ServiceName),
-    FunctionBin = atom_to_binary(Function),
-    %% NOTE: `otel_baggage` uses `otel_ctx` that relies on __process dictionary__
-    ok = otel_baggage:set(#{<<"service">> => ServiceNameBin, <<"function">> => FunctionBin}),
-    SpanName = <<ServiceNameBin/binary, ":", FunctionBin/binary>>,
-    Tracer = opentelemetry:get_application_tracer(?MODULE),
-    %% NOTE: Starts span and sets its context as current span in __process dictionary__
-    otel_tracer:set_current_span(otel_tracer:start_span(Tracer, SpanName, #{})).
-
-end_span_for_call(SpanCtx) ->
-    %% NOTE: Ends span and puts context into __process dictionary__
-    otel_tracer:set_current_span(otel_span:end_span(SpanCtx, undefined)).
+    woody_client:call({Service, Function, Args}, mk_client_opts(#{url => Url}, C), Context).
 
 get_service_endpoint('Weapons') ->
     {
@@ -1382,3 +1379,8 @@ handle_sleep(Context) ->
         BinTimer ->
             timer:sleep(binary_to_integer(BinTimer))
     end.
+
+mk_otel_attributes(Attributes) ->
+    SpanAttributeCountLimit = otel_span_limits:attribute_count_limit(),
+    SpanAttributeValueLengthLimit = otel_span_limits:attribute_value_length_limit(),
+    otel_attributes:new(Attributes, SpanAttributeCountLimit, SpanAttributeValueLengthLimit).

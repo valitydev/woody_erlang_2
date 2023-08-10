@@ -1,4 +1,4 @@
--module(woody_ct_otel_buffer).
+-module(woody_ct_otel_collector).
 
 -behaviour(gen_server).
 
