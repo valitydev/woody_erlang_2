@@ -1269,12 +1269,15 @@ call(Context, ServiceName, Function, Args, C) ->
 start_span_for_call(ServiceName, Function) ->
     ServiceNameBin = atom_to_binary(ServiceName),
     FunctionBin = atom_to_binary(Function),
+    %% NOTE: `otel_baggage` uses `otel_ctx` that relies on __process dictionary__
     ok = otel_baggage:set(#{<<"service">> => ServiceNameBin, <<"function">> => FunctionBin}),
     SpanName = <<ServiceNameBin/binary, ":", FunctionBin/binary>>,
     Tracer = opentelemetry:get_application_tracer(?MODULE),
+    %% NOTE: Starts span and sets its context as current span in __process dictionary__
     otel_tracer:set_current_span(otel_tracer:start_span(Tracer, SpanName, #{})).
 
 end_span_for_call(SpanCtx) ->
+    %% NOTE: Ends span and puts context into __process dictionary__
     otel_tracer:set_current_span(otel_span:end_span(SpanCtx, undefined)).
 
 get_service_endpoint('Weapons') ->

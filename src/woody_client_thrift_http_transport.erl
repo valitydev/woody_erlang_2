@@ -125,10 +125,11 @@ send(Url, Body, Options, ResOpts, WoodyState) ->
             % reusing keep-alive connections to dead hosts
             case woody_resolver:resolve_url(Url, WoodyState, ResOpts) of
                 {ok, {OldUrl, NewUrl}, _ConnectOpts} ->
-                    Headers = add_host_header(OldUrl, make_woody_headers(Context)),
+                    Headers0 = add_host_header(OldUrl, make_woody_headers(Context)),
+                    Headers1 = otel_propagator_text_map:inject(Headers0),
                     Options1 = set_defaults(Options),
                     Options2 = set_timeouts(Options1, Context),
-                    HeaderList = maps:to_list(Headers),
+                    HeaderList = maps:to_list(Headers1),
                     Result = hackney:request(post, NewUrl, HeaderList, Body, maps:to_list(Options2)),
                     transform_request_results(Result);
                 {error, Reason} ->
