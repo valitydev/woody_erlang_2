@@ -27,10 +27,10 @@ handle_event(?EV_INTERNAL_ERROR, RpcID, Meta = #{error := Error, class := Class,
 handle_event(Event, RpcID, Meta, _Opts) when ?IS_SPAN_START(Event) ->
     Tracer = opentelemetry:get_application_tracer(?MODULE),
     otel_span_start(Tracer, otel_ctx:get_current(), mk_ref(RpcID), mk_name(Meta), mk_opts(Event));
-handle_event(Event, RpcID, _Meta, _Opts) when ?IS_SPAN_END(Event) ->
-    %% TODO If meta has stack, status := error or class := system | business,
-    %%      then record an exception before finishing that span
-    otel_span_end(otel_ctx:get_current(), mk_ref(RpcID), fun(_SpanCtx) -> ok end);
+handle_event(Event, RpcID, Meta, _Opts) when ?IS_SPAN_END(Event) ->
+    otel_span_end(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
+        otel_maybe_erroneous_result(SpanCtx, Meta)
+    end);
 handle_event(_Event, _RpcID, _Meta, _Opts) ->
     ok.
 
@@ -83,6 +83,14 @@ otel_maybe_cleanup(#{final := true}, SpanCtx) ->
     ok;
 otel_maybe_cleanup(_Meta, _SpanCtx) ->
     ok.
+
+otel_maybe_erroneous_result(SpanCtx, Meta = #{status := error, result := Reason}) ->
+    Class = maps:get(except_class, Meta, error),
+    Stacktrace = maps:get(stack, Meta, []),
+    _ = otel_span:record_exception(SpanCtx, Class, Reason, Stacktrace, #{}),
+    SpanCtx;
+otel_maybe_erroneous_result(SpanCtx, _Meta) ->
+    SpanCtx.
 
 mk_opts(?EV_CALL_SERVICE) ->
     #{kind => ?SPAN_KIND_CLIENT};
