@@ -15,7 +15,20 @@
 
 -define(IS_SPAN_START(Event), Event =:= ?EV_CALL_SERVICE orelse Event =:= ?EV_INVOKE_SERVICE_HANDLER).
 -define(IS_SPAN_END(Event), Event =:= ?EV_SERVICE_RESULT orelse Event =:= ?EV_SERVICE_HANDLER_RESULT).
+-define(IS_CLIENT_INTERNAL(Event),
+    Event =:= ?EV_CLIENT_CACHE_HIT orelse
+        Event =:= ?EV_CLIENT_CACHE_MISS orelse
+        Event =:= ?EV_CLIENT_CACHE_UPDATE orelse
+        Event =:= ?EV_CLIENT_SEND orelse
+        Event =:= ?EV_CLIENT_RECEIVE
+).
 
+%% Client events
+handle_event(Event, RpcID, _Meta = #{url := Url}, _Opts) when ?IS_CLIENT_INTERNAL(Event) ->
+    otel_with_span(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
+        _ = otel_span:add_event(SpanCtx, atom_to_binary(Event), #{url => Url})
+    end);
+%% Internal error handling
 handle_event(?EV_INTERNAL_ERROR, RpcID, Meta = #{error := Error, class := Class, reason := Reason}, _Opts) ->
     Stacktrace = maps:get(stack, Meta, []),
     Details = io_lib:format("~ts: ~ts", [Error, Reason]),
@@ -35,6 +48,9 @@ handle_event(_Event, _RpcID, _Meta, _Opts) ->
     ok.
 
 %% In-process span helpers
+%% NOTE Those helpers are designed specifically to manage stacking spans during
+%%      woody client (or server) calls _inside_ one single process context.
+%%      Thus, use of process dictionary via `otel_ctx'.
 
 -define(SPANS_STACK, 'spans_ctx_stack').
 
