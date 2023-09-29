@@ -111,9 +111,7 @@ otel_maybe_erroneous_result(SpanCtx, _Meta) ->
 mk_opts(?EV_CALL_SERVICE) ->
     #{kind => ?SPAN_KIND_CLIENT};
 mk_opts(?EV_INVOKE_SERVICE_HANDLER) ->
-    #{kind => ?SPAN_KIND_SERVER};
-mk_opts(_Event) ->
-    #{}.
+    #{kind => ?SPAN_KIND_SERVER}.
 
 mk_ref(#{span_id := WoodySpanId}) ->
     WoodySpanId.
