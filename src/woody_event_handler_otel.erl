@@ -25,72 +25,52 @@
 
 %% Client events
 handle_event(Event, RpcID, _Meta = #{url := Url}, _Opts) when ?IS_CLIENT_INTERNAL(Event) ->
-    otel_with_span(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
+    with_span(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
         _ = otel_span:add_event(SpanCtx, atom_to_binary(Event), #{url => Url})
     end);
 %% Internal error handling
 handle_event(?EV_INTERNAL_ERROR, RpcID, Meta = #{error := Error, class := Class, reason := Reason}, _Opts) ->
     Stacktrace = maps:get(stack, Meta, []),
     Details = io_lib:format("~ts: ~ts", [Error, Reason]),
-    otel_with_span(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
+    with_span(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
         _ = otel_span:record_exception(SpanCtx, genlib:define(Class, error), Details, Stacktrace, #{}),
         otel_maybe_cleanup(Meta, SpanCtx)
     end);
 %% Registers span starts/ends for woody client calls and woody server function invocations.
 handle_event(Event, RpcID, Meta, _Opts) when ?IS_SPAN_START(Event) ->
     Tracer = opentelemetry:get_application_tracer(?MODULE),
-    otel_span_start(Tracer, otel_ctx:get_current(), mk_ref(RpcID), mk_name(Meta), mk_opts(Event));
+    span_start(Tracer, otel_ctx:get_current(), mk_ref(RpcID), mk_name(Meta), mk_opts(Event));
 handle_event(Event, RpcID, Meta, _Opts) when ?IS_SPAN_END(Event) ->
-    otel_span_end(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
+    span_end(otel_ctx:get_current(), mk_ref(RpcID), fun(SpanCtx) ->
         otel_maybe_erroneous_result(SpanCtx, Meta)
     end);
 handle_event(_Event, _RpcID, _Meta, _Opts) ->
     ok.
 
-%% In-process span helpers
-%% NOTE Those helpers are designed specifically to manage stacking spans during
-%%      woody client (or server) calls _inside_ one single process context.
-%%      Thus, use of process dictionary via `otel_ctx'.
+%%
 
--define(SPANS_STACK, 'spans_ctx_stack').
-
-otel_span_start(Tracer, Ctx, SpanKey, SpanName, Opts) ->
+span_start(Tracer, Ctx, Key, SpanName, Opts) ->
     SpanCtx = otel_tracer:start_span(Ctx, Tracer, SpanName, Opts),
-    Ctx1 = record_current_span_ctx(SpanKey, SpanCtx, Ctx),
+    Ctx1 = woody_util:span_stack_put(Key, SpanCtx, Ctx),
     Ctx2 = otel_tracer:set_current_span(Ctx1, SpanCtx),
     _ = otel_ctx:attach(Ctx2),
     ok.
 
-record_current_span_ctx(Key, SpanCtx, Ctx) ->
-    Stack = otel_ctx:get_value(Ctx, ?SPANS_STACK, []),
-    Entry = {Key, SpanCtx, otel_tracer:current_span_ctx(Ctx)},
-    otel_ctx:set_value(Ctx, ?SPANS_STACK, [Entry | Stack]).
-
-otel_span_end(Ctx, SpanKey, OnBeforeEnd) ->
-    Stack = otel_ctx:get_value(Ctx, ?SPANS_STACK, []),
-    %% NOTE Only first occurrence is taken
-    case lists:keytake(SpanKey, 1, Stack) of
-        false ->
+span_end(Ctx, Key, OnBeforeEnd) ->
+    case woody_util:span_stack_pop(Key, Ctx) of
+        {error, notfound} ->
             ok;
-        {value, {_Key, SpanCtx, ParentSpanCtx}, Stack1} ->
+        {ok, SpanCtx, ParentSpanCtx, Ctx1} ->
             SpanCtx1 = OnBeforeEnd(SpanCtx),
             _ = otel_span:end_span(SpanCtx1, undefined),
-            Ctx1 = otel_ctx:set_value(Ctx, ?SPANS_STACK, Stack1),
             Ctx2 = otel_tracer:set_current_span(Ctx1, ParentSpanCtx),
             _ = otel_ctx:attach(Ctx2),
             ok
     end.
 
-otel_with_span(Ctx, SpanKey, F) ->
-    Stack = otel_ctx:get_value(Ctx, ?SPANS_STACK, []),
-    %% Find one in stack by key or use whatever current span is in otel context
-    _ =
-        case lists:keyfind(SpanKey, 1, Stack) of
-            false ->
-                F(otel_tracer:current_span_ctx(Ctx));
-            {_Key, SpanCtx, _ParentSpanCtx} ->
-                F(SpanCtx)
-        end,
+with_span(Ctx, Key, F) ->
+    SpanCtx = woody_util:span_stack_get(Key, Ctx, otel_tracer:current_span_ctx(Ctx)),
+    _ = F(SpanCtx),
     ok.
 
 otel_maybe_cleanup(#{final := true}, SpanCtx) ->

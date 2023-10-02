@@ -12,6 +12,12 @@
 -define(DEFAULT_HANDLER_OPTS, undefined).
 
 %%
+
+-export([otel_put/3]).
+-export([otel_get/3]).
+-export([otel_pop/2]).
+
+%%
 %% Internal API
 %%
 -spec get_protocol_handler(woody:role(), map()) -> module() | no_return().
@@ -51,3 +57,41 @@ get_rpc_type({Module, Service}, Function) ->
 -spec get_rpc_reply_type(_ThriftReplyType) -> woody:rpc_type().
 get_rpc_reply_type(oneway_void) -> cast;
 get_rpc_reply_type(_) -> call.
+
+%% OTEL context span helpers
+%% NOTE Those helpers are designed specifically to manage stacking spans during
+%%      woody client (or server) calls _inside_ one single process context.
+%%      Thus, use of process dictionary via `otel_ctx'.
+
+-define(OTEL_SPANS_STACK, 'spans_ctx_stack').
+
+-type span_key() :: atom() | binary() | string().
+-type maybe_span_ctx() :: opentelemetry:span_ctx() | undefined.
+
+-spec otel_put(span_key(), opentelemetry:span_ctx(), otel_ctx:t()) -> otel_ctx:t().
+otel_put(Key, SpanCtx, Context) ->
+    Stack = otel_ctx:get_value(Context, ?OTEL_SPANS_STACK, []),
+    Entry = {Key, SpanCtx, otel_tracer:current_span_ctx(Context)},
+    otel_ctx:set_value(Context, ?OTEL_SPANS_STACK, [Entry | Stack]).
+
+-spec otel_get(span_key(), otel_ctx:t(), maybe_span_ctx()) -> maybe_span_ctx().
+otel_get(Key, Context, Default) ->
+    Stack = otel_ctx:get_value(Context, ?OTEL_SPANS_STACK, []),
+    case lists:keyfind(Key, 1, Stack) of
+        false ->
+            Default;
+        {_Key, SpanCtx, _ParentSpanCtx} ->
+            SpanCtx
+    end.
+
+-spec otel_pop(span_key(), otel_ctx:t()) ->
+    {ok, opentelemetry:span_ctx(), maybe_span_ctx(), otel_ctx:t()} | {error, notfound}.
+otel_pop(Key, Context) ->
+    Stack = otel_ctx:get_value(Context, ?OTEL_SPANS_STACK, []),
+    case lists:keytake(Key, 1, Stack) of
+        false ->
+            {error, notfound};
+        {value, {_Key, SpanCtx, ParentSpanCtx}, Stack1} ->
+            Context1 = otel_ctx:set_value(Context, ?OTEL_SPANS_STACK, Stack1),
+            {ok, SpanCtx, ParentSpanCtx, Context1}
+    end.
