@@ -51,13 +51,13 @@ handle_event(_Event, _RpcID, _Meta, _Opts) ->
 
 span_start(Tracer, Ctx, Key, SpanName, Opts) ->
     SpanCtx = otel_tracer:start_span(Ctx, Tracer, SpanName, Opts),
-    Ctx1 = woody_util:span_stack_put(Key, SpanCtx, Ctx),
+    Ctx1 = woody_util:otel_put(Key, SpanCtx, Ctx),
     Ctx2 = otel_tracer:set_current_span(Ctx1, SpanCtx),
     _ = otel_ctx:attach(Ctx2),
     ok.
 
 span_end(Ctx, Key, OnBeforeEnd) ->
-    case woody_util:span_stack_pop(Key, Ctx) of
+    case woody_util:otel_pop(Key, Ctx) of
         {error, notfound} ->
             ok;
         {ok, SpanCtx, ParentSpanCtx, Ctx1} ->
@@ -69,7 +69,7 @@ span_end(Ctx, Key, OnBeforeEnd) ->
     end.
 
 with_span(Ctx, Key, F) ->
-    SpanCtx = woody_util:span_stack_get(Key, Ctx, otel_tracer:current_span_ctx(Ctx)),
+    SpanCtx = woody_util:otel_get(Key, Ctx, otel_tracer:current_span_ctx(Ctx)),
     _ = F(SpanCtx),
     ok.
 

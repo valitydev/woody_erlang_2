@@ -13,9 +13,9 @@
 
 %%
 
--export([otel_put/3]).
--export([otel_get/3]).
--export([otel_pop/2]).
+-export([span_stack_put/3]).
+-export([span_stack_get/3]).
+-export([span_stack_pop/2]).
 
 %%
 %% Internal API
@@ -68,14 +68,14 @@ get_rpc_reply_type(_) -> call.
 -type span_key() :: atom() | binary() | string().
 -type maybe_span_ctx() :: opentelemetry:span_ctx() | undefined.
 
--spec otel_put(span_key(), opentelemetry:span_ctx(), otel_ctx:t()) -> otel_ctx:t().
-otel_put(Key, SpanCtx, Context) ->
+-spec span_stack_put(span_key(), opentelemetry:span_ctx(), otel_ctx:t()) -> otel_ctx:t().
+span_stack_put(Key, SpanCtx, Context) ->
     Stack = otel_ctx:get_value(Context, ?OTEL_SPANS_STACK, []),
     Entry = {Key, SpanCtx, otel_tracer:current_span_ctx(Context)},
     otel_ctx:set_value(Context, ?OTEL_SPANS_STACK, [Entry | Stack]).
 
--spec otel_get(span_key(), otel_ctx:t(), maybe_span_ctx()) -> maybe_span_ctx().
-otel_get(Key, Context, Default) ->
+-spec span_stack_get(span_key(), otel_ctx:t(), maybe_span_ctx()) -> maybe_span_ctx().
+span_stack_get(Key, Context, Default) ->
     Stack = otel_ctx:get_value(Context, ?OTEL_SPANS_STACK, []),
     case lists:keyfind(Key, 1, Stack) of
         false ->
@@ -84,9 +84,9 @@ otel_get(Key, Context, Default) ->
             SpanCtx
     end.
 
--spec otel_pop(span_key(), otel_ctx:t()) ->
+-spec span_stack_pop(span_key(), otel_ctx:t()) ->
     {ok, opentelemetry:span_ctx(), maybe_span_ctx(), otel_ctx:t()} | {error, notfound}.
-otel_pop(Key, Context) ->
+span_stack_pop(Key, Context) ->
     Stack = otel_ctx:get_value(Context, ?OTEL_SPANS_STACK, []),
     case lists:keytake(Key, 1, Stack) of
         false ->
