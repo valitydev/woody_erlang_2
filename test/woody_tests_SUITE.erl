@@ -696,7 +696,7 @@ call_pass_thru_ok_test(C) ->
     Context = make_context(<<"call_pass_thru_ok">>),
     Expect = {ok, genlib_map:get(Armor, powerups())},
     Baggage = #{<<"service">> => <<"Powerups">>},
-    SpanName = <<"Powerups:proxy_get_powerup">>,
+    SpanName = <<"test Powerups:proxy_get_powerup">>,
     %% NOTE: `otel_baggage` uses `otel_ctx` that relies on __process dictionary__
     ok = otel_baggage:set(Baggage),
     Tracer = opentelemetry:get_application_tracer(?MODULE),
@@ -712,17 +712,13 @@ call_pass_thru_ok_test(C) ->
     Attrs = mk_otel_attributes(Baggage#{<<"proxied">> => <<"true">>}),
     ?assertMatch(
         ?OTEL_SPAN(SpanName, [
-            ?OTEL_SPAN(?EV_CLIENT_BEGIN, [
-                ?OTEL_SPAN(?EV_CALL_SERVICE, [
-                    %% Upon invocation event baggage is expected to be put in span attributes
-                    ?OTEL_SPAN(?EV_INVOKE_SERVICE_HANDLER, ProxyAttrs, [
-                        %% New client starts call here
-                        ?OTEL_SPAN(?EV_CLIENT_BEGIN, [
-                            ?OTEL_SPAN(?EV_CALL_SERVICE, [
-                                ?OTEL_SPAN(?EV_INVOKE_SERVICE_HANDLER, Attrs, [
-                                    %% Expect no child spans uphere
-                                ])
-                            ])
+            ?OTEL_SPAN(<<"client Powerups:proxy_get_powerup">>, [
+                %% Upon invocation event baggage is expected to be put in span attributes
+                ?OTEL_SPAN(<<"server Powerups:proxy_get_powerup">>, ProxyAttrs, [
+                    %% New client starts call here
+                    ?OTEL_SPAN(<<"client Powerups:get_powerup">>, [
+                        ?OTEL_SPAN(<<"server Powerups:get_powerup">>, Attrs, [
+                            %% Expect no child spans uphere
                         ])
                     ])
                 ])
@@ -1111,45 +1107,14 @@ handle_event(
 ->
     _ = handle_proxy_event(Event, Code, TraceId, ParentId),
     log_event(Event, RpcId, Meta);
-%% Client works
-handle_event(Event = ?EV_CLIENT_BEGIN, RpcId, Meta, _) ->
-    _ = start_woody_span(Event),
-    log_event(Event, RpcId, Meta);
-handle_event(Event = ?EV_CLIENT_END, RpcId, Meta, _) ->
-    log_event(Event, RpcId, Meta),
-    _ = end_woody_span(?EV_CLIENT_BEGIN),
-    ok;
-%% Call service
-handle_event(Event = ?EV_CALL_SERVICE, RpcId, Meta, _) ->
-    _ = start_woody_span(Event),
-    log_event(Event, RpcId, Meta);
-handle_event(Event = ?EV_SERVICE_RESULT, RpcId, Meta, _) ->
-    log_event(Event, RpcId, Meta),
-    _ = end_woody_span(?EV_CALL_SERVICE),
-    ok;
 %% Handle invocation
 handle_event(Event = ?EV_INVOKE_SERVICE_HANDLER, RpcId, Meta, _) ->
-    SpanCtx = start_woody_span(Event),
-    _ = otel_span:set_attributes(SpanCtx, maps:map(fun(_Key, {Value, _Metadata}) -> Value end, otel_baggage:get_all())),
-    log_event(Event, RpcId, Meta);
-handle_event(Event = ?EV_SERVICE_HANDLER_RESULT, RpcId, Meta, _) ->
     log_event(Event, RpcId, Meta),
-    _ = end_woody_span(?EV_INVOKE_SERVICE_HANDLER),
+    SpanCtx = otel_tracer:current_span_ctx(),
+    _ = otel_span:set_attributes(SpanCtx, maps:map(fun(_Key, {Value, _Metadata}) -> Value end, otel_baggage:get_all())),
     ok;
 handle_event(Event, RpcId, Meta, _) ->
     log_event(Event, RpcId, Meta).
-
-start_woody_span(SpanName) ->
-    %% Rely on woody client/server worker being same process for 'start' and 'end' events handling
-    Tracer = opentelemetry:get_application_tracer(?MODULE),
-    SpanCtx = otel_tracer:set_current_span(otel_tracer:start_span(Tracer, SpanName, #{})),
-    %% Ignore if overwriting existing spanctx
-    _Old = erlang:put({woody_span, SpanName}, SpanCtx),
-    SpanCtx.
-
-end_woody_span(SpanName) ->
-    SpanCtx = erlang:erase({woody_span, SpanName}),
-    otel_tracer:set_current_span(otel_span:end_span(SpanCtx, undefined)).
 
 handle_proxy_event(?EV_CLIENT_RECEIVE, Code, TraceId, ParentId) when TraceId =/= ParentId ->
     handle_proxy_event(?EV_CLIENT_RECEIVE, Code, TraceId);
@@ -1178,6 +1143,7 @@ handle_proxy_event(Event, Code, Descr) ->
     erlang:error(badarg, [Event, Code, Descr]).
 
 log_event(Event, RpcId, Meta) ->
+    ok = woody_event_handler_otel:handle_event(Event, RpcId, Meta, []),
     woody_ct_event_h:handle_event(Event, RpcId, Meta, []).
 
 %%
