@@ -3,6 +3,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("hackney/include/hackney_lib.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
+-include_lib("opentelemetry/include/otel_span.hrl").
 
 -include("woody_test_thrift.hrl").
 -include("woody_defs.hrl").
@@ -110,6 +112,11 @@
 
 -define(WEAPON_STACK_OVERFLOW, pos_out_of_boundaries).
 -define(BAD_POWERUP_REPLY, powerup_unknown).
+
+-define(OTEL_SPAN(Name, Children), #{span := #span{name = Name}, children := Children}).
+-define(OTEL_SPAN(Name, SpanAttributes, Children), #{
+    span := #span{name = Name, attributes = SpanAttributes}, children := Children
+}).
 
 -type config() :: [{atom(), any()}].
 -type case_name() :: atom().
@@ -293,7 +300,8 @@ init_per_suite(C) ->
     ]),
     {ok, Apps} = application:ensure_all_started(woody),
     {ok, HayApps} = application:ensure_all_started(how_are_you),
-    [{apps, HayApps ++ Apps} | C].
+    {ok, OtelApps} = setup_opentelemetry(),
+    [{apps, OtelApps ++ HayApps ++ Apps} | C].
 
 end_per_suite(C) ->
     % unset so it won't report metrics next suite
@@ -351,6 +359,20 @@ init_per_group(Name, Config) ->
 
 end_per_group(_Name, _Config) ->
     ok.
+
+setup_opentelemetry() ->
+    ok = application:set_env([
+        {opentelemetry, [
+            {text_map_propagators, [
+                baggage,
+                trace_context
+            ]},
+            {span_processor, simple},
+            {traces_exporter, {otel_exporter_pid, woody_ct_otel_collector}}
+        ]}
+    ]),
+    ok = application:start(opentelemetry),
+    {ok, [opentelemetry]}.
 
 start_tc_sup() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -673,8 +695,37 @@ call_pass_thru_ok_test(C) ->
     Armor = <<"AntiGrav Boots">>,
     Context = make_context(<<"call_pass_thru_ok">>),
     Expect = {ok, genlib_map:get(Armor, powerups())},
+    Baggage = #{<<"service">> => <<"Powerups">>},
+    SpanName = <<"test Powerups:proxy_get_powerup">>,
+    %% NOTE: `otel_baggage` uses `otel_ctx` that relies on __process dictionary__
+    ok = otel_baggage:set(Baggage),
+    Tracer = opentelemetry:get_application_tracer(?MODULE),
+    %% NOTE: Starts span and sets its context as current span in __process dictionary__
+    SpanCtx = otel_tracer:set_current_span(otel_tracer:start_span(Tracer, SpanName, #{})),
     Expect = call(Context, 'Powerups', proxy_get_powerup, {Armor, self_to_bin()}, C),
-    {ok, _} = receive_msg(Armor, Context).
+    %% NOTE: Ends span and puts context into __process dictionary__
+    _ = otel_tracer:set_current_span(otel_span:end_span(SpanCtx, undefined)),
+    {ok, _} = receive_msg(Armor, Context),
+    {ok, #{node := Root}} = woody_ct_otel_collector:get_trace(SpanCtx#span_ctx.trace_id),
+    %% Prepare otel attributes to match against
+    ProxyAttrs = mk_otel_attributes(Baggage),
+    Attrs = mk_otel_attributes(Baggage#{<<"proxied">> => <<"true">>}),
+    ?assertMatch(
+        ?OTEL_SPAN(SpanName, [
+            ?OTEL_SPAN(<<"client Powerups:proxy_get_powerup">>, [
+                %% Upon invocation event baggage is expected to be put in span attributes
+                ?OTEL_SPAN(<<"server Powerups:proxy_get_powerup">>, ProxyAttrs, [
+                    %% New client starts call here
+                    ?OTEL_SPAN(<<"client Powerups:get_powerup">>, [
+                        ?OTEL_SPAN(<<"server Powerups:get_powerup">>, Attrs, [
+                            %% Expect no child spans uphere
+                        ])
+                    ])
+                ])
+            ])
+        ]),
+        Root
+    ).
 
 call_pass_thru_except_test(C) ->
     Armor = <<"Shield Belt">>,
@@ -985,7 +1036,7 @@ init(_) ->
     {ok,
         {
             {one_for_one, 1, 1},
-            []
+            [#{id => woody_ct_otel_collector, start => {woody_ct_otel_collector, start_link, []}}]
         }}.
 
 %%
@@ -1015,6 +1066,8 @@ handle_function(ProxyGetPowerup, {Name, To}, Context, _Opts) when
     ProxyGetPowerup =:= proxy_get_powerup orelse
         ProxyGetPowerup =:= bad_proxy_get_powerup
 ->
+    %% NOTE: Merges baggage, requires #{binary() => binary()}
+    ok = otel_baggage:set(#{<<"proxied">> => <<"true">>}),
     % NOTE
     % Client may return `{exception, _}` tuple with some business level exception
     % here, yet handler expects us to `throw/1` them. This is expected here it
@@ -1054,6 +1107,12 @@ handle_event(
 ->
     _ = handle_proxy_event(Event, Code, TraceId, ParentId),
     log_event(Event, RpcId, Meta);
+%% Handle invocation
+handle_event(Event = ?EV_INVOKE_SERVICE_HANDLER, RpcId, Meta, _) ->
+    log_event(Event, RpcId, Meta),
+    SpanCtx = otel_tracer:current_span_ctx(),
+    _ = otel_span:set_attributes(SpanCtx, maps:map(fun(_Key, {Value, _Metadata}) -> Value end, otel_baggage:get_all())),
+    ok;
 handle_event(Event, RpcId, Meta, _) ->
     log_event(Event, RpcId, Meta).
 
@@ -1084,6 +1143,7 @@ handle_proxy_event(Event, Code, Descr) ->
     erlang:error(badarg, [Event, Code, Descr]).
 
 log_event(Event, RpcId, Meta) ->
+    ok = woody_event_handler_otel:handle_event(Event, RpcId, Meta, []),
     woody_ct_event_h:handle_event(Event, RpcId, Meta, []).
 
 %%
@@ -1285,3 +1345,8 @@ handle_sleep(Context) ->
         BinTimer ->
             timer:sleep(binary_to_integer(BinTimer))
     end.
+
+mk_otel_attributes(Attributes) ->
+    SpanAttributeCountLimit = otel_span_limits:attribute_count_limit(),
+    SpanAttributeValueLengthLimit = otel_span_limits:attribute_value_length_limit(),
+    otel_attributes:new(Attributes, SpanAttributeCountLimit, SpanAttributeValueLengthLimit).
