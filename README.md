@@ -176,3 +176,36 @@ check_loan_limits(Limits, Context, N) ->
 application:set_env(woody, trace_http_server, true).
 application:unset_env(woody, trace_http_server).
 ```
+
+### Prometheus metrics 
+
+Чтобы осуществлять экспорт метрик следует добавить [соответствующий хэндлер](https://github.com/deadtrickster/prometheus-cowboy#exporting-metrics-with-handlers) для cowboy-сервера.
+
+``` erlang
+{deps, [
+    ...
+    {prometheus_cowboy, "0.1.8"}
+]}
+```
+
+Для сбора серверных метрик необходимо на старте приложения объявить их
+
+``` erlang
+ok = woody_ranch_metrics_collector:setup()
+```
+
+**TODO** Доделать описание для серверных метрик
+
+Для сбора клиентских метрик необходимо на старте приложения объявить их
+
+``` erlang
+ok = woody_hackney_pool_metrics_collector:setup()
+```
+
+Это будет публиковать целочисленные значения в шкале 'woody_hackney_pool_usage' с метками `pool` в качестве названия пула и `status` в качестве параметра соответствующего значения:
+
+- `in_use_count` -- используемые соединения в пуле; 
+- `free_count` -- свободное количество в пуле; 
+- `queue_count` -- очередь за свободными соединенеиями
+
+**TODO** Возможно стоит рассмотреть публикацию метрик по количеству исполняемых запросв в общем, с разбивкой по хосту и количества новых и переиспользуемых соедининий в каждом из пулов. [Хакни это предоставляет](https://github.com/benoitc/hackney/tree/1.18.0#metrics).
