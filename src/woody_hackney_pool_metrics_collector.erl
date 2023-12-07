@@ -27,7 +27,7 @@ setup() ->
 -spec collect_mf(prometheus_registry:registry(), prometheus_collector:collect_mf_callback()) -> ok.
 collect_mf(_Registry, Callback) ->
     F = fun({Pool, _Pid}) ->
-        make_pool_data(Pool, hackney_pool:get_stats(Pool))
+        make_pool_data(Pool, get_pool_stats(Pool))
     end,
     Data = lists:flatten(lists:map(F, get_hackney_pools())),
     Callback(create_gauge(Data)).
@@ -46,6 +46,17 @@ deregister_cleanup(_Registry) ->
 
 registry() ->
     default.
+
+get_pool_stats(Pool) ->
+    %% NOTE It looks like 'hackney_pool' table data can occasionally contain
+    %%      dead pools
+    try
+        hackney_pool:get_stats(Pool)
+    catch
+        %% "Time to make the chimi-fuckin'-changas."
+        exit:{noproc, _Reason} ->
+            []
+    end.
 
 -spec create_gauge(data()) -> prometheus_model:'MetricFamily'().
 create_gauge(Data) ->

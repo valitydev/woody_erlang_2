@@ -12,10 +12,6 @@
 
 %% Installation
 
-%% Кажется что стоит собирать метрики не просто по обслуживаемым запросам в
-%% ковбое, но ещё и общему количесту активных соединений, а так же
-%% непосредстввенных событий вуди с метками службы/операции для дополнения
-%% метрик информацией о том откуда идут запросы к сервису.
 -spec setup() -> ok.
 setup() ->
     prometheus_registry:register_collector(registry(), ?MODULE).
@@ -60,14 +56,15 @@ create_gauge(Data) ->
 
 -spec make_listener_data(maybe_woody_server_ref(), #{atom() => any()}) -> data().
 make_listener_data(Ref, #{active_connections := V}) ->
-    [{[listener, Ref], V}];
+    Labels = [{listener, Ref}],
+    [{Labels, V}];
 make_listener_data(_Ref, _Info) ->
     [].
 
 get_listeners_info() ->
     lists:filter(
         fun
-            (#{active_connections := _}) -> true;
+            ({_Ref, #{active_connections := _}}) -> true;
             (_Else) -> false
         end,
         %% See https://ninenines.eu/docs/en/ranch/1.8/guide/listeners/#_obtaining_information_about_listeners
