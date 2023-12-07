@@ -289,6 +289,7 @@ init_per_suite(C) ->
     %%Apps = genlib_app:start_application_with(woody, [{trace_http_server, true}]),
     {ok, Apps} = application:ensure_all_started(woody),
     {ok, MetricsApps} = application:ensure_all_started(prometheus),
+    ok = woody_ranch_metrics_collector:setup(),
     ok = woody_hackney_pool_metrics_collector:setup(),
     {ok, OtelApps} = setup_opentelemetry(),
     [{apps, OtelApps ++ MetricsApps ++ Apps} | C].

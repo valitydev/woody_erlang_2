@@ -1,9 +1,16 @@
 -module(woody_ranch_metrics_collector).
 
 -export([setup/0]).
--export([observe/1]).
 
 %%
+
+-behaviour(prometheus_collector).
+
+-export([collect_mf/2]).
+-export([collect_metrics/2]).
+-export([deregister_cleanup/1]).
+
+%% Installation
 
 %% Кажется что стоит собирать метрики не просто по обслуживаемым запросам в
 %% ковбое, но ещё и общему количесту активных соединений, а так же
@@ -11,35 +18,67 @@
 %% метрик информацией о том откуда идут запросы к сервису.
 -spec setup() -> ok.
 setup() ->
-    %% TODO
+    prometheus_registry:register_collector(registry(), ?MODULE).
+
+%% Collector API
+
+-type data() :: [data_item()].
+-type data_item() :: {data_labels(), non_neg_integer()}.
+-type data_labels() :: [{atom(), atom() | nonempty_string() | binary() | iolist()}].
+-type maybe_woody_server_ref() :: {module(), ID :: atom()} | ranch:ref().
+-type ranch_info() ::
+    [{maybe_woody_server_ref(), [{atom(), any()}]}]
+    | #{maybe_woody_server_ref() => #{atom() => any()}}.
+
+-spec collect_mf(prometheus_registry:registry(), prometheus_collector:collect_mf_callback()) -> ok.
+collect_mf(_Registry, Callback) ->
+    F = fun({ListenerRef, ListenerInfo}) ->
+        make_listener_data(ListenerRef, ListenerInfo)
+    end,
+    Data = lists:flatten(lists:map(F, get_listeners_info())),
+    Callback(create_gauge(Data)).
+
+-spec collect_metrics(prometheus_metric:name(), data()) ->
+    prometheus_model:'Metric'() | [prometheus_model:'Metric'()].
+collect_metrics(_Name, Data) ->
+    [prometheus_model_helpers:gauge_metric(Labels, Value) || {Labels, Value} <- Data].
+
+-spec deregister_cleanup(prometheus_registry:registry()) -> ok.
+deregister_cleanup(_Registry) ->
+    %% Nothing to clean up
     ok.
-%% prometheus_counter:declare([{name, woody_active_connections},
-%%                             {registry, registry()},
-%%                             {labels, []},
-%%                             {help, "Number of active connections."}]),
-%%   ok.
 
--spec observe(cowboy_metrics_h:metrics()) -> ok.
-observe(_Metrics) ->
-    ok.
+%% Private
 
-%%
+registry() ->
+    default.
 
-%% get_server_acceptors_info() ->
-%%     ranch:info().
-%%     %% {_Ref, [
-%%     %%     {pid, Pid},
-%%     %%     {status, Status},
-%%     %%     {ip, IP},
-%%     %%     {port, Port},
-%%     %%     {max_connections, MaxConns},
-%%     %%     {active_connections, ranch_conns_sup:active_connections(ConnsSup)},
-%%     %%     {all_connections, proplists:get_value(active, supervisor:count_children(ConnsSup))},
-%%     %%     {transport, Transport},
-%%     %%     {transport_options, TransOpts},
-%%     %%     {protocol, Protocol},
-%%     %%     {protocol_options, ProtoOpts}
-%%     %% ]}.
+-spec create_gauge(data()) -> prometheus_model:'MetricFamily'().
+create_gauge(Data) ->
+    Help = "Number of active connections",
+    prometheus_model_helpers:create_mf(woody_ranch_listener_connections, Help, gauge, ?MODULE, Data).
 
-%% registry() ->
-%%     default.
+-spec make_listener_data(maybe_woody_server_ref(), #{atom() => any()}) -> data().
+make_listener_data(Ref, #{active_connections := V}) ->
+    [{[listener, Ref], V}];
+make_listener_data(_Ref, _Info) ->
+    [].
+
+get_listeners_info() ->
+    lists:filter(
+        fun
+            (#{active_connections := _}) -> true;
+            (_Else) -> false
+        end,
+        %% See https://ninenines.eu/docs/en/ranch/1.8/guide/listeners/#_obtaining_information_about_listeners
+        normalize_listeners_info(ranch:info())
+    ).
+
+-dialyzer({no_match, normalize_listeners_info/1}).
+-spec normalize_listeners_info(ranch_info()) -> [{maybe_woody_server_ref(), #{atom() => any()}}].
+%% Ranch v2
+normalize_listeners_info(#{} = Info) ->
+    maps:to_list(Info);
+%% Ranch v1
+normalize_listeners_info(Info) ->
+    lists:map(fun({Ref, ListenerInfo}) -> {Ref, maps:from_list(ListenerInfo)} end, Info).

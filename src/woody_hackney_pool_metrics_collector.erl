@@ -26,12 +26,11 @@ setup() ->
 
 -spec collect_mf(prometheus_registry:registry(), prometheus_collector:collect_mf_callback()) -> ok.
 collect_mf(_Registry, Callback) ->
-    lists:foreach(
-        fun({Pool, _Pid}) ->
-            Callback(create_gauge(Pool, hackney_pool:get_stats(Pool)))
-        end,
-        get_hackney_pools()
-    ).
+    F = fun({Pool, _Pid}) ->
+        make_pool_data(Pool, hackney_pool:get_stats(Pool))
+    end,
+    Data = lists:flatten(lists:map(F, get_hackney_pools())),
+    Callback(create_gauge(Data)).
 
 -spec collect_metrics(prometheus_metric:name(), data()) ->
     prometheus_model:'Metric'() | [prometheus_model:'Metric'()].
@@ -48,18 +47,13 @@ deregister_cleanup(_Registry) ->
 registry() ->
     default.
 
--spec create_gauge(atom(), pool_stats()) -> prometheus_model:'MetricFamily'().
-create_gauge(Pool, Stats) ->
-    prometheus_model_helpers:create_mf(
-        woody_hackney_pool_usage,
-        "Connection pool status by used, free and queued connections count",
-        gauge,
-        ?MODULE,
-        make_data(Pool, Stats)
-    ).
+-spec create_gauge(data()) -> prometheus_model:'MetricFamily'().
+create_gauge(Data) ->
+    Help = "Connection pool status by used, free and queued connections count",
+    prometheus_model_helpers:create_mf(woody_hackney_pool_usage, Help, gauge, ?MODULE, Data).
 
--spec make_data(atom(), pool_stats()) -> data().
-make_data(Pool, Stats0) ->
+-spec make_pool_data(atom(), pool_stats()) -> data().
+make_pool_data(Pool, Stats0) ->
     Stats1 = maps:with([in_use_count, free_count, queue_count], maps:from_list(Stats0)),
     lists:foldl(fun({S, V}, Data) -> [make_data_item(Pool, S, V) | Data] end, [], maps:to_list(Stats1)).
 
