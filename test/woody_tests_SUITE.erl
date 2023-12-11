@@ -1384,6 +1384,8 @@ assert_connections_metrics() ->
 get_metric_ref(#'Metric'{label = Labels}) ->
     get_metric_ref_(Labels).
 
+get_metric_ref_([]) ->
+    undefined;
 get_metric_ref_([#'LabelPair'{name = <<"listener">>, value = Ref} | _]) ->
     Ref;
 get_metric_ref_([_Label | Labels]) ->
