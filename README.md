@@ -191,7 +191,7 @@ application:unset_env(woody, trace_http_server).
 Для сбора серверных метрик необходимо на старте приложения объявить их
 
 ``` erlang
-ok = woody_ranch_metrics_collector:setup()
+ok = woody_ranch_prometheus_collector:setup()
 ```
 
 **TODO** Доделать описание для серверных метрик
@@ -201,7 +201,7 @@ ok = woody_ranch_metrics_collector:setup()
 Для сбора клиентских метрик необходимо на старте приложения объявить их
 
 ``` erlang
-ok = woody_hackney_pool_metrics_collector:setup()
+ok = woody_hackney_prometheus_collector:setup()
 ```
 
 Это будет публиковать целочисленные значения в шкале 'woody_hackney_pool_usage' с метками `pool` в качестве названия пула и `status` в качестве параметра соответствующего значения:

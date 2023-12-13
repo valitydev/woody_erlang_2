@@ -292,8 +292,8 @@ init_per_suite(C) ->
     %%Apps = genlib_app:start_application_with(woody, [{trace_http_server, true}]),
     {ok, Apps} = application:ensure_all_started(woody),
     {ok, MetricsApps} = application:ensure_all_started(prometheus),
-    ok = woody_ranch_metrics_collector:setup(),
-    ok = woody_hackney_pool_metrics_collector:setup(),
+    ok = woody_ranch_prometheus_collector:setup(),
+    ok = woody_hackney_prometheus_collector:setup(),
     {ok, OtelApps} = setup_opentelemetry(),
     [{apps, OtelApps ++ MetricsApps ++ Apps} | C].
 
@@ -821,7 +821,7 @@ call_fail_w_no_headers(Id, Class, _Code) ->
 find_multiple_pools_test(_) ->
     true = is_pid(hackney_pool:find_pool(swords)),
     true = is_pid(hackney_pool:find_pool(shields)),
-    MF = smuggle_mf_return_value(fun(F) -> woody_hackney_pool_metrics_collector:collect_mf(default, F) end),
+    MF = smuggle_mf_return_value(fun(F) -> woody_hackney_prometheus_collector:collect_mf(default, F) end),
     %% We can't know order and values from hackney's pool info, but we can
     %% expect that values for those pools must be provided. However exact number
     %% of values can vary based on order of testcase execution and other
@@ -1358,7 +1358,7 @@ mk_otel_attributes(Attributes) ->
     otel_attributes:new(Attributes, SpanAttributeCountLimit, SpanAttributeValueLengthLimit).
 
 assert_connections_metrics() ->
-    MF = smuggle_mf_return_value(fun(F) -> woody_ranch_metrics_collector:collect_mf(default, F) end),
+    MF = smuggle_mf_return_value(fun(F) -> woody_ranch_prometheus_collector:collect_mf(default, F) end),
     %% Sadly we can't match on listener ref since its an iodata representation of tuple.
     ?assertMatch(
         #'MetricFamily'{

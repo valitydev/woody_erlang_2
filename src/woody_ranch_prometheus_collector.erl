@@ -1,4 +1,4 @@
--module(woody_ranch_metrics_collector).
+-module(woody_ranch_prometheus_collector).
 
 -export([setup/0]).
 
@@ -9,6 +9,8 @@
 -export([collect_mf/2]).
 -export([collect_metrics/2]).
 -export([deregister_cleanup/1]).
+
+-define(CONNECTIONS, woody_ranch_listener_connections).
 
 %% Installation
 
@@ -52,7 +54,7 @@ registry() ->
 -spec create_gauge(data()) -> prometheus_model:'MetricFamily'().
 create_gauge(Data) ->
     Help = "Number of active connections",
-    prometheus_model_helpers:create_mf(woody_ranch_listener_connections, Help, gauge, ?MODULE, Data).
+    prometheus_model_helpers:create_mf(?CONNECTIONS, Help, gauge, ?MODULE, Data).
 
 -spec make_listener_data(maybe_woody_server_ref(), #{atom() => any()}) -> data().
 make_listener_data(Ref, #{active_connections := V}) ->

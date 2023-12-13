@@ -1,4 +1,4 @@
--module(woody_hackney_pool_metrics_collector).
+-module(woody_hackney_prometheus_collector).
 
 -export([setup/0]).
 
@@ -9,6 +9,8 @@
 -export([collect_mf/2]).
 -export([collect_metrics/2]).
 -export([deregister_cleanup/1]).
+
+-define(POOL_USAGE, woody_hackney_pool_usage).
 
 %% Installation
 
@@ -61,7 +63,7 @@ get_pool_stats(Pool) ->
 -spec create_gauge(data()) -> prometheus_model:'MetricFamily'().
 create_gauge(Data) ->
     Help = "Connection pool status by used, free and queued connections count",
-    prometheus_model_helpers:create_mf(woody_hackney_pool_usage, Help, gauge, ?MODULE, Data).
+    prometheus_model_helpers:create_mf(?POOL_USAGE, Help, gauge, ?MODULE, Data).
 
 -spec make_pool_data(atom(), pool_stats()) -> data().
 make_pool_data(Pool, Stats0) ->
