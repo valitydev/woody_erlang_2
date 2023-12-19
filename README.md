@@ -194,8 +194,6 @@ application:unset_env(woody, trace_http_server).
 ok = woody_ranch_prometheus_collector:setup()
 ```
 
-**TODO** Доделать описание для серверных метрик
-
 Если дополнительно интересуют все метрики ковбоя то можно добавить [реализацию обсервера из библиотеки](https://github.com/deadtrickster/prometheus-cowboy?tab=readme-ov-file#exporting-cowboy2-metrics).
 
 Для сбора клиентских метрик необходимо на старте приложения объявить их
