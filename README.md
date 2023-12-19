@@ -168,6 +168,80 @@ check_loan_limits(Limits, Context, N) ->
 ### Woody Event Handler
 Интерфейс для получения и логирования событий RPC библиотеки. Также содержит вспомогательные функции для удобного форматирования событий. Пример реализации _event handler_'а - [woody_event_handler_default.erl](src/woody_event_handler_default.erl).
 
+Через опции обработчика можно сообщить параметры соответствия событий RPC для уровня логирования:
+
+``` erlang
+woody_event_handler_default:handle_event(Event, RpcId, Meta, #{
+    formatter_opts => ...,
+    events_severity => #{
+        ['call service'] => debug,
+        ...
+    }
+}).
+```
+
+Где эти параметры имеют значения по умолчанию в следующем виде:
+
+``` erlang
+#{
+    events_severity => #{
+        %% Пограничные события работы клиента
+        ['client begin'] => debug,
+        ['client end'] => debug,
+
+        %% Начало вызова сервиса, перед формированием запроса
+        ['call service'] => info,
+    
+        %% Результат вызова сервиса на клиенте
+        ['service result'] => info,
+        ['service result', error] => error,
+        %% Событие состоявшегося вызова с возвращённой ошибкой в качестве 
+        %% результата
+        ['service result', warning] => warning,
+
+        %% Клиентские события, включая обнаружения хоста
+        ['client send'] => debug,
+        ['client resolve begin'] => debug,
+        ['client resolve result'] => debug,
+        ['client receive'] => debug,
+        ['client receive', error] => warning,
+
+        %% Непосредственные события обслуживания запроса сервером
+        ['server receive'] => debug,
+        ['server send'] => debug,
+        ['server send', error] => warning,
+
+        %% Начало обслуживания вызова функции сервиса
+        ['invoke service handler'] => info,
+
+        %% Завершение обслуживание вызова с разным итогом
+        ['service handler result'] => info,
+        ['service handler result', error, business] => info,
+        ['service handler result', error, system] => error,
+        %% Обслуживание вызова завершилось поправимой ошибкой;
+        %% по крайней мере она не в рамках бизнес-логики но и не системное 
+        %% исключение
+        ['service handler result', warning] => warning,
+        
+        %% События кеширующей обертки клиента
+        ['client cache begin'] => debug,
+        ['client cache end'] => debug,
+        ['client cache hit'] => info,
+        ['client cache miss'] => debug,
+        ['client cache update'] => debug,
+        ['client cache result'] => debug,
+        
+        %% Внутренние ошибки с разным контекстом/происхождением
+        ['internal error', system] => error,
+        ['internal error', business] => warning,
+        %% Событие трассировки на уровне woody, см. далее
+        
+        ['trace event'] => debug
+    }
+}.
+```
+
+
 ### Tracing
 Можно динамически включать и выключать трассировку http запросов и ответов.
 
