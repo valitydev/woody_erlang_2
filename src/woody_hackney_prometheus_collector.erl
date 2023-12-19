@@ -32,7 +32,8 @@ collect_mf(_Registry, Callback) ->
         make_pool_data(Pool, get_pool_stats(Pool))
     end,
     Data = lists:flatten(lists:map(F, get_hackney_pools())),
-    Callback(create_gauge(Data)).
+    _ = Callback(create_gauge(Data)),
+    ok.
 
 -spec collect_metrics(prometheus_metric:name(), data()) ->
     prometheus_model:'Metric'() | [prometheus_model:'Metric'()].

@@ -34,7 +34,8 @@ collect_mf(_Registry, Callback) ->
         make_listener_data(ListenerRef, ListenerInfo)
     end,
     Data = lists:flatten(lists:map(F, get_listeners_info())),
-    Callback(create_gauge(Data)).
+    _ = Callback(create_gauge(Data)),
+    ok.
 
 -spec collect_metrics(prometheus_metric:name(), data()) ->
     prometheus_model:'Metric'() | [prometheus_model:'Metric'()].
