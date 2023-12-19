@@ -5,6 +5,7 @@
 -include_lib("hackney/include/hackney_lib.hrl").
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
 -include_lib("opentelemetry/include/otel_span.hrl").
+-include_lib("prometheus/include/prometheus_model.hrl").
 
 -include("woody_test_thrift.hrl").
 -include("woody_defs.hrl").
@@ -280,6 +281,8 @@ cross_test_groups() ->
         }
     }.
 
+-define(RANCH_REF, woody_ct).
+
 %%
 %% starting/stopping
 %%
@@ -287,21 +290,12 @@ init_per_suite(C) ->
     % dbg:tracer(), dbg:p(all, c),
     % dbg:tpl({woody_joint_workers, '_', '_'}, x),
     %%Apps = genlib_app:start_application_with(woody, [{trace_http_server, true}]),
-    application:set_env(hackney, mod_metrics, woody_client_metrics),
-    application:set_env(woody, woody_client_metrics_options, #{
-        metric_key_mapping => #{
-            [hackney, nb_requests] => [hackney, requests_in_process]
-        }
-    }),
-    application:set_env(how_are_you, metrics_handlers, [
-        {woody_api_hay, #{
-            interval => 1000
-        }}
-    ]),
     {ok, Apps} = application:ensure_all_started(woody),
-    {ok, HayApps} = application:ensure_all_started(how_are_you),
+    {ok, MetricsApps} = application:ensure_all_started(prometheus),
+    ok = woody_ranch_prometheus_collector:setup(),
+    ok = woody_hackney_prometheus_collector:setup(),
     {ok, OtelApps} = setup_opentelemetry(),
-    [{apps, OtelApps ++ HayApps ++ Apps} | C].
+    [{apps, OtelApps ++ MetricsApps ++ Apps} | C].
 
 end_per_suite(C) ->
     % unset so it won't report metrics next suite
@@ -334,21 +328,21 @@ init_per_testcase(find_multiple_pools_test, C) ->
     {ok, Sup} = start_tc_sup(),
     Pool1 = {swords, 15000, 100},
     Pool2 = {shields, undefined, 50},
-    ok = start_woody_server_with_pools(woody_ct, Sup, ['Weapons', 'Powerups'], [Pool1, Pool2], C),
+    ok = start_woody_server_with_pools(?RANCH_REF, Sup, ['Weapons', 'Powerups'], [Pool1, Pool2], C),
     [{sup, Sup} | C];
 init_per_testcase(calls_with_cache, C) ->
     {ok, Sup} = start_tc_sup(),
     {ok, _} = start_caching_client(caching_client_ct, Sup),
-    {ok, _} = start_woody_server(woody_ct, Sup, ['Weapons', 'Powerups'], C),
+    {ok, _} = start_woody_server(?RANCH_REF, Sup, ['Weapons', 'Powerups'], C),
     [{sup, Sup} | C];
 init_per_testcase(server_handled_client_timeout_test, C) ->
     {ok, Sup} = start_tc_sup(),
     {ok, _} = supervisor:start_child(Sup, server_timeout_event_handler:child_spec()),
-    {ok, _} = start_woody_server(woody_ct, Sup, ['Weapons', 'Powerups'], server_timeout_event_handler, C),
+    {ok, _} = start_woody_server(?RANCH_REF, Sup, ['Weapons', 'Powerups'], server_timeout_event_handler, C),
     [{sup, Sup} | C];
 init_per_testcase(_, C) ->
     {ok, Sup} = start_tc_sup(),
-    {ok, _} = start_woody_server(woody_ct, Sup, ['Weapons', 'Powerups'], C),
+    {ok, _} = start_woody_server(?RANCH_REF, Sup, ['Weapons', 'Powerups'], C),
     [{sup, Sup} | C].
 
 init_per_group(woody_resolver, Config) ->
@@ -381,7 +375,7 @@ start_error_server(TC, Sup) ->
     Code = get_fail_code(TC),
     Dispatch = cowboy_router:compile([{'_', [{?PATH_WEAPONS, ?MODULE, Code}]}]),
     Server = ranch:child_spec(
-        woody_ct,
+        ?RANCH_REF,
         ranch_tcp,
         [{ip, ?SERVER_IP}, {port, ?SERVER_PORT}],
         cowboy_clear,
@@ -826,7 +820,18 @@ call_fail_w_no_headers(Id, Class, _Code) ->
 
 find_multiple_pools_test(_) ->
     true = is_pid(hackney_pool:find_pool(swords)),
-    true = is_pid(hackney_pool:find_pool(shields)).
+    true = is_pid(hackney_pool:find_pool(shields)),
+    MF = smuggle_mf_return_value(fun(F) -> woody_hackney_prometheus_collector:collect_mf(default, F) end),
+    %% We can't know order and values from hackney's pool info, but we can
+    %% expect that values for those pools must be provided. However exact number
+    %% of values can vary based on order of testcase execution and other
+    %% side-effects.
+    ValuesCount = length([swords, shields]) * length([queue_count, in_use_count, free_count]),
+    ?assertMatch(
+        #'MetricFamily'{type = 'GAUGE', name = <<"woody_hackney_pool_usage">>, metric = Values} when
+            length(Values) >= ValuesCount,
+        MF
+    ).
 
 call_thrift_multiplexed_test(_) ->
     Client = make_thrift_multiplexed_client(
@@ -1229,6 +1234,7 @@ gun_test_basic(Id, Gun, Expect, C) ->
     catch
         Class:Reason -> ok
     end,
+    ok = assert_connections_metrics(),
     check_msg(Gun, Context).
 
 get_except({ok, _}) ->
@@ -1350,3 +1356,45 @@ mk_otel_attributes(Attributes) ->
     SpanAttributeCountLimit = otel_span_limits:attribute_count_limit(),
     SpanAttributeValueLengthLimit = otel_span_limits:attribute_value_length_limit(),
     otel_attributes:new(Attributes, SpanAttributeCountLimit, SpanAttributeValueLengthLimit).
+
+assert_connections_metrics() ->
+    MF = smuggle_mf_return_value(fun(F) -> woody_ranch_prometheus_collector:collect_mf(default, F) end),
+    %% Sadly we can't match on listener ref since its an iodata representation of tuple.
+    ?assertMatch(
+        #'MetricFamily'{
+            name = <<"woody_ranch_listener_connections">>,
+            type = 'GAUGE',
+            metric = [
+                #'Metric'{
+                    label = [#'LabelPair'{name = <<"listener">>, value = _Ref}],
+                    gauge = #'Gauge'{value = V}
+                }
+            ]
+        } when V >= 1,
+        MF
+    ),
+    %% NOTE See `prometheus_model_helpers:ensure_binary_or_string/1`
+    RefImpl1 = io_lib:format("~p", [{woody_server_thrift_http_handler, ?RANCH_REF}]),
+    RefImpl2 = io_lib:format("~p", [{woody_server_thrift_v2, ?RANCH_REF}]),
+    ?assertMatch(
+        Expected when Expected =:= RefImpl1 orelse Expected =:= RefImpl2,
+        get_metric_ref(hd(MF#'MetricFamily'.metric))
+    ).
+
+get_metric_ref(#'Metric'{label = Labels}) ->
+    get_metric_ref_(Labels).
+
+get_metric_ref_([]) ->
+    undefined;
+get_metric_ref_([#'LabelPair'{name = <<"listener">>, value = Ref} | _]) ->
+    Ref;
+get_metric_ref_([_Label | Labels]) ->
+    get_metric_ref_(Labels).
+
+%% Collector module expects 'ok' return. Because of that dialyzer won't quit bitching.
+smuggle_mf_return_value(Fun) ->
+    _ = Fun(fun(MF) ->
+        _ = erlang:put(smuggle, MF),
+        ok
+    end),
+    erlang:get(smuggle).

@@ -4,6 +4,7 @@
 -export([handle_event/3, handle_event/4]).
 
 -export([get_event_severity/2]).
+-export([get_event_severity/3]).
 -export([format_event/3, format_event/4]).
 -export([format_meta/2, format_meta/3]).
 -export([format_rpc_id/1]).
@@ -221,7 +222,8 @@
 -export_type([meta/0]).
 
 -type options() :: #{
-    formatter_opts => woody_event_formatter:opts()
+    formatter_opts => woody_event_formatter:opts(),
+    events_severity => #{nonempty_list(atom()) => severity()}
 }.
 
 -export_type([options/0]).
@@ -379,68 +381,77 @@ format_event(UnknownEventType, Meta, _Opts) ->
     {" unknown woody event type '~s' with meta ~p", [UnknownEventType, Meta]}.
 
 -spec get_event_severity(event(), event_meta()) -> severity().
-get_event_severity(?EV_CLIENT_BEGIN, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_END, _Meta) ->
-    debug;
-get_event_severity(?EV_CALL_SERVICE, _Meta) ->
-    info;
-get_event_severity(?EV_SERVICE_RESULT, #{status := ok}) ->
-    info;
-get_event_severity(?EV_SERVICE_RESULT, #{status := error, stack := _Stack}) ->
-    error;
-get_event_severity(?EV_SERVICE_RESULT, #{status := error, result := _Error}) ->
-    warning;
-get_event_severity(?EV_CLIENT_SEND, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_RESOLVE_BEGIN, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_RESOLVE_RESULT, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_RECEIVE, #{status := ok}) ->
-    debug;
-get_event_severity(?EV_CLIENT_RECEIVE, #{status := error}) ->
-    warning;
-get_event_severity(?EV_SERVER_RECEIVE, _Meta) ->
-    debug;
-get_event_severity(?EV_SERVER_SEND, #{status := ok}) ->
-    debug;
-get_event_severity(?EV_SERVER_SEND, #{status := error}) ->
-    warning;
-get_event_severity(?EV_INVOKE_SERVICE_HANDLER, _Meta) ->
-    info;
-get_event_severity(?EV_SERVICE_HANDLER_RESULT, #{status := ok}) ->
-    info;
-get_event_severity(?EV_SERVICE_HANDLER_RESULT, #{status := error, class := business}) ->
-    info;
-get_event_severity(?EV_SERVICE_HANDLER_RESULT, #{status := error, class := system, stack := _Stack}) ->
-    error;
-get_event_severity(?EV_SERVICE_HANDLER_RESULT, #{status := error, class := system, result := _Error}) ->
-    warning;
-get_event_severity(?EV_CLIENT_CACHE_BEGIN, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_CACHE_END, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_CACHE_HIT, _Meta) ->
-    info;
-get_event_severity(?EV_CLIENT_CACHE_MISS, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_CACHE_UPDATE, _Meta) ->
-    debug;
-get_event_severity(?EV_CLIENT_CACHE_RESULT, _Meta) ->
-    debug;
-get_event_severity(?EV_INTERNAL_ERROR, #{error := _, class := _Class, stack := _Stack}) ->
-    error;
-get_event_severity(?EV_INTERNAL_ERROR, #{error := _, reason := _Reason}) ->
-    warning;
-get_event_severity(?EV_TRACE, _Meta) ->
-    debug;
-get_event_severity(_UnknownEventType, _Meta) ->
-    warning.
+get_event_severity(Event, Meta) ->
+    get_event_severity(Event, Meta, #{}).
+
+-spec get_event_severity(event(), event_meta(), options()) -> severity().
+get_event_severity(?EV_CLIENT_BEGIN = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_END = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CALL_SERVICE = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, info);
+get_event_severity(?EV_SERVICE_RESULT = Event, #{status := ok}, Opts) ->
+    map_severity([Event], Opts, info);
+get_event_severity(?EV_SERVICE_RESULT = Event, #{status := error, stack := _Stack}, Opts) ->
+    map_severity([Event, error], Opts, error);
+get_event_severity(?EV_SERVICE_RESULT = Event, #{status := error, result := _Error}, Opts) ->
+    map_severity([Event, warning], Opts, warning);
+get_event_severity(?EV_CLIENT_SEND = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_RESOLVE_BEGIN = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_RESOLVE_RESULT = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_RECEIVE = Event, #{status := ok}, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_RECEIVE = Event, #{status := error}, Opts) ->
+    map_severity([Event, error], Opts, warning);
+get_event_severity(?EV_SERVER_RECEIVE = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_SERVER_SEND = Event, #{status := ok}, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_SERVER_SEND = Event, #{status := error}, Opts) ->
+    map_severity([Event, error], Opts, warning);
+get_event_severity(?EV_INVOKE_SERVICE_HANDLER = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, info);
+get_event_severity(?EV_SERVICE_HANDLER_RESULT = Event, #{status := ok}, Opts) ->
+    map_severity([Event], Opts, info);
+get_event_severity(?EV_SERVICE_HANDLER_RESULT = Event, #{status := error, class := business}, Opts) ->
+    map_severity([Event, error, business], Opts, info);
+get_event_severity(?EV_SERVICE_HANDLER_RESULT = Event, #{status := error, class := system, stack := _Stack}, Opts) ->
+    map_severity([Event, error, system], Opts, error);
+get_event_severity(?EV_SERVICE_HANDLER_RESULT = Event, #{status := error, class := system, result := _Error}, Opts) ->
+    map_severity([Event, warning], Opts, warning);
+get_event_severity(?EV_CLIENT_CACHE_BEGIN = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_CACHE_END = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_CACHE_HIT = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, info);
+get_event_severity(?EV_CLIENT_CACHE_MISS = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_CACHE_UPDATE = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_CLIENT_CACHE_RESULT = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(?EV_INTERNAL_ERROR = Event, #{error := _, class := _Class, stack := _Stack}, Opts) ->
+    map_severity([Event, system], Opts, error);
+get_event_severity(?EV_INTERNAL_ERROR = Event, #{error := _, reason := _Reason}, Opts) ->
+    map_severity([Event, business], Opts, warning);
+get_event_severity(?EV_TRACE = Event, _Meta, Opts) ->
+    map_severity([Event], Opts, debug);
+get_event_severity(UnknownEventType, _Meta, Opts) ->
+    map_severity([UnknownEventType], Opts, warning).
 
 %%
 %% Internal functions
 %%
+-spec map_severity(nonempty_list(atom()), options(), severity()) -> severity().
+map_severity(Code, Opts, Default) ->
+    EventsSeverity = maps:get(events_severity, Opts, #{}),
+    maps:get(Code, EventsSeverity, Default).
+
 -spec format_service_request(map(), options()) -> msg().
 format_service_request(#{service_schema := {Module, Service}, function := Function, args := Args}, Opts) ->
     woody_event_formatter:format_call(Module, Service, Function, Args, get_formatter_opts(Opts)).
@@ -1581,5 +1592,158 @@ exception_test_() ->
             )
         )
     ].
+
+-spec event_severity_defaults_test_() -> _.
+event_severity_defaults_test_() ->
+    Opts = #{events_severity => default_severity_map()},
+    Meta = #{role => server},
+    [
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_BEGIN, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_END, Meta, Opts)),
+
+        ?_assertEqual(info, get_event_severity(?EV_CALL_SERVICE, Meta, Opts)),
+
+        ?_assertEqual(info, get_event_severity(?EV_SERVICE_RESULT, Meta#{status => ok}, Opts)),
+        ?_assertEqual(error, get_event_severity(?EV_SERVICE_RESULT, Meta#{status => error, stack => []}, Opts)),
+        ?_assertEqual(warning, get_event_severity(?EV_SERVICE_RESULT, Meta#{status => error, result => {}}, Opts)),
+
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_SEND, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_RESOLVE_BEGIN, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_RESOLVE_RESULT, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_RECEIVE, Meta#{status => ok}, Opts)),
+        ?_assertEqual(warning, get_event_severity(?EV_CLIENT_RECEIVE, Meta#{status => error}, Opts)),
+
+        ?_assertEqual(debug, get_event_severity(?EV_SERVER_RECEIVE, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_SERVER_SEND, Meta#{status => ok}, Opts)),
+        ?_assertEqual(warning, get_event_severity(?EV_SERVER_SEND, Meta#{status => error}, Opts)),
+
+        ?_assertEqual(info, get_event_severity(?EV_INVOKE_SERVICE_HANDLER, Meta, Opts)),
+
+        ?_assertEqual(info, get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => ok}, Opts)),
+        ?_assertEqual(
+            info, get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => error, class => business}, Opts)
+        ),
+        ?_assertEqual(
+            error,
+            get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => error, class => system, stack => []}, Opts)
+        ),
+        ?_assertEqual(
+            warning,
+            get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => error, class => system, result => {}}, Opts)
+        ),
+
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_CACHE_BEGIN, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_CACHE_END, Meta, Opts)),
+        ?_assertEqual(info, get_event_severity(?EV_CLIENT_CACHE_HIT, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_CACHE_MISS, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_CACHE_UPDATE, Meta, Opts)),
+        ?_assertEqual(debug, get_event_severity(?EV_CLIENT_CACHE_RESULT, Meta, Opts)),
+
+        ?_assertEqual(
+            error, get_event_severity(?EV_INTERNAL_ERROR, Meta#{error => test, class => throw, stack => []}, Opts)
+        ),
+        ?_assertEqual(warning, get_event_severity(?EV_INTERNAL_ERROR, Meta#{error => test, reason => test}, Opts)),
+
+        ?_assertEqual(debug, get_event_severity(?EV_TRACE, Meta, Opts))
+    ].
+
+-spec event_severity_all_info_test_() -> _.
+event_severity_all_info_test_() ->
+    ExpectAll = info,
+    Opts = #{events_severity => replace_all_with(ExpectAll, default_severity_map())},
+    Meta = #{role => server},
+    [
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_BEGIN, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_END, Meta, Opts)),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CALL_SERVICE, Meta, Opts)),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_SERVICE_RESULT, Meta#{status => ok}, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_SERVICE_RESULT, Meta#{status => error, stack => []}, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_SERVICE_RESULT, Meta#{status => error, result => {}}, Opts)),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_SEND, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_RESOLVE_BEGIN, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_RESOLVE_RESULT, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_RECEIVE, Meta#{status => ok}, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_RECEIVE, Meta#{status => error}, Opts)),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_SERVER_RECEIVE, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_SERVER_SEND, Meta#{status => ok}, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_SERVER_SEND, Meta#{status => error}, Opts)),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_INVOKE_SERVICE_HANDLER, Meta, Opts)),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => ok}, Opts)),
+        ?_assertEqual(
+            ExpectAll, get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => error, class => business}, Opts)
+        ),
+        ?_assertEqual(
+            ExpectAll,
+            get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => error, class => system, stack => []}, Opts)
+        ),
+        ?_assertEqual(
+            ExpectAll,
+            get_event_severity(?EV_SERVICE_HANDLER_RESULT, Meta#{status => error, class => system, result => {}}, Opts)
+        ),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_CACHE_BEGIN, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_CACHE_END, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_CACHE_HIT, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_CACHE_MISS, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_CACHE_UPDATE, Meta, Opts)),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_CLIENT_CACHE_RESULT, Meta, Opts)),
+
+        ?_assertEqual(
+            ExpectAll, get_event_severity(?EV_INTERNAL_ERROR, Meta#{error => test, class => throw, stack => []}, Opts)
+        ),
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_INTERNAL_ERROR, Meta#{error => test, reason => test}, Opts)),
+
+        ?_assertEqual(ExpectAll, get_event_severity(?EV_TRACE, Meta, Opts))
+    ].
+
+replace_all_with(NewSeverity, SeverityMap) ->
+    maps:map(fun(_K, _V) -> NewSeverity end, SeverityMap).
+
+default_severity_map() ->
+    #{
+        ['client begin'] => debug,
+        ['client end'] => debug,
+
+        ['call service'] => info,
+
+        ['service result'] => info,
+        ['service result', error] => error,
+        ['service result', warning] => warning,
+
+        ['client send'] => debug,
+        ['client resolve begin'] => debug,
+        ['client resolve result'] => debug,
+        ['client receive'] => debug,
+        ['client receive', error] => warning,
+
+        ['server receive'] => debug,
+        ['server send'] => debug,
+        ['server send', error] => warning,
+
+        ['invoke service handler'] => info,
+
+        ['service handler result'] => info,
+        ['service handler result', error, business] => info,
+        ['service handler result', error, system] => error,
+        ['service handler result', warning] => warning,
+
+        ['client cache begin'] => debug,
+        ['client cache end'] => debug,
+        ['client cache hit'] => info,
+        ['client cache miss'] => debug,
+        ['client cache update'] => debug,
+        ['client cache result'] => debug,
+
+        ['internal error', system] => error,
+        ['internal error', business] => warning,
+
+        ['trace event'] => debug
+    }.
 
 -endif.
