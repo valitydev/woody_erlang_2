@@ -3,7 +3,7 @@
 %% https://github.com/benoitc/hackney/tree/1.18.0?tab=readme-ov-file#metrics
 %%
 %% For pool metrics see dedicated collector module
-%% `woody_hackney_prometeus_collector`.
+%% `woody_hackney_prometheus_collector`.
 -module(woody_hackney_prometheus).
 
 -export([
