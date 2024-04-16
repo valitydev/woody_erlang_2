@@ -90,15 +90,15 @@ increment_counter([hackney, nb_requests], Value) ->
 increment_counter([hackney, total_requests], Value) ->
     prometheus_counter:inc(registry(), ?TOTAL_REQUESTS, [], Value);
 increment_counter([hackney, Host, nb_requests], Value) ->
-    prometheus_gauge:inc(registry(), ?HOST_NB_REQUESTS, [{host, Host}], Value);
+    prometheus_gauge:inc(registry(), ?HOST_NB_REQUESTS, [Host], Value);
 increment_counter([hackney, Host, connect_timeout], Value) ->
-    prometheus_counter:inc(registry(), ?HOST_CONNECT_TIMEOUT, [{host, Host}], Value);
+    prometheus_counter:inc(registry(), ?HOST_CONNECT_TIMEOUT, [Host], Value);
 increment_counter([hackney, Host, connect_error], Value) ->
-    prometheus_counter:inc(registry(), ?HOST_CONNECT_ERROR, [{host, Host}], Value);
+    prometheus_counter:inc(registry(), ?HOST_CONNECT_ERROR, [Host], Value);
 increment_counter([hackney_pool, Host, new_connection], Value) ->
-    prometheus_counter:inc(registry(), ?HOST_NEW_CONNECTION, [{host, Host}], Value);
+    prometheus_counter:inc(registry(), ?HOST_NEW_CONNECTION, [Host], Value);
 increment_counter([hackney_pool, Host, reuse_connection], Value) ->
-    prometheus_counter:inc(registry(), ?HOST_REUSE_CONNECTION, [{host, Host}], Value);
+    prometheus_counter:inc(registry(), ?HOST_REUSE_CONNECTION, [Host], Value);
 increment_counter(_Name, _Value) ->
     ok.
 
@@ -110,7 +110,7 @@ decrement_counter(Name) ->
 decrement_counter([hackney, nb_requests], Value) ->
     prometheus_gauge:dec(registry(), ?NB_REQUESTS, [], Value);
 decrement_counter([hackney, Host, nb_requests], Value) ->
-    prometheus_gauge:dec(registry(), ?HOST_NB_REQUESTS, [{host, Host}], Value);
+    prometheus_gauge:dec(registry(), ?HOST_NB_REQUESTS, [Host], Value);
 decrement_counter(_Name, _Value) ->
     ok.
 
