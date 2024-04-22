@@ -26,6 +26,7 @@
 -define(NB_REQUESTS, hackney_nb_requests).
 -define(TOTAL_REQUESTS, hackney_total_requests).
 -define(HOST_NB_REQUESTS, hackney_host_nb_requests).
+-define(HOST_REQUEST_TIME, hackney_host_request_time). %% milliseconds
 -define(HOST_CONNECT_TIMEOUT, hackney_host_connect_timeout).
 -define(HOST_CONNECT_ERROR, hackney_host_connect_error).
 -define(HOST_NEW_CONNECTION, hackney_host_new_connection).
@@ -49,6 +50,14 @@ new(counter, [hackney, nb_requests]) ->
         {registry, registry()},
         {labels, [host]},
         {help, "Number of running requests."}
+    ]),
+    true = prometheus_histogram:declare([
+        {name, ?HOST_REQUEST_TIME},
+        {registry, registry()},
+        {labels, [host]},
+        {buckets, duration_buckets()},
+        {duration_unit, seconds},
+        {help, "Request time."}
     ]),
     [
         true = prometheus_counter:declare([
@@ -117,6 +126,9 @@ decrement_counter(_Name, _Value) ->
 -spec update_histogram(name(), fun(() -> ok) | number()) -> ok.
 update_histogram(_Name, Fun) when is_function(Fun, 0) ->
     Fun();
+update_histogram([hackney, Host, request_time], Value) ->
+    _ = prometheus_histogram:observe(registry(), ?HOST_REQUEST_TIME, [Host], Value),
+    ok;
 update_histogram(_Name, _Value) ->
     ok.
 
@@ -132,3 +144,20 @@ update_meter(_Name, _Value) ->
 
 registry() ->
     default.
+
+duration_buckets() ->
+    %% Seconds
+    [
+        0.001,
+        0.005,
+        0.010,
+        0.025,
+        0.050,
+        0.100,
+        0.250,
+        0.500,
+        1,
+        2.5,
+        5,
+        10
+    ].
