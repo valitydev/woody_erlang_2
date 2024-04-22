@@ -26,7 +26,7 @@
 -define(NB_REQUESTS, hackney_nb_requests).
 -define(TOTAL_REQUESTS, hackney_total_requests).
 -define(HOST_NB_REQUESTS, hackney_host_nb_requests).
--define(HOST_REQUEST_TIME, hackney_host_request_time). %% milliseconds
+-define(HOST_REQUEST_TIME, hackney_host_request_time).
 -define(HOST_CONNECT_TIMEOUT, hackney_host_connect_timeout).
 -define(HOST_CONNECT_ERROR, hackney_host_connect_error).
 -define(HOST_NEW_CONNECTION, hackney_host_new_connection).
@@ -55,8 +55,7 @@ new(counter, [hackney, nb_requests]) ->
         {name, ?HOST_REQUEST_TIME},
         {registry, registry()},
         {labels, [host]},
-        {buckets, duration_buckets()},
-        {duration_unit, seconds},
+        {buckets, request_time_buckets_ms()},
         {help, "Request time."}
     ]),
     [
@@ -145,19 +144,15 @@ update_meter(_Name, _Value) ->
 registry() ->
     default.
 
-duration_buckets() ->
-    %% Seconds
+request_time_buckets_ms() ->
     [
-        0.001,
-        0.005,
-        0.010,
-        0.025,
-        0.050,
-        0.100,
-        0.250,
-        0.500,
-        1,
-        2.5,
         5,
-        10
+        10,
+        25,
+        50,
+        100,
+        250,
+        500,
+        1000,
+        10000
     ].
