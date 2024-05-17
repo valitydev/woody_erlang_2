@@ -22,7 +22,8 @@
 handle_event(Event, RpcId, Meta, Opts) ->
     EHOpts = get_event_handler_opts(Opts),
     {Format, Msg} = woody_event_handler:format_event(Event, Meta, RpcId, EHOpts),
-    Function = get_logger_function(woody_event_handler:get_event_severity(Event, Meta)),
+    Severity = woody_event_handler:get_event_severity(Event, Meta, Opts),
+    Function = get_logger_function(Severity),
     _ = error_logger:Function(Format, Msg),
     ok.
 
