@@ -10,7 +10,8 @@
         cowboy,
         hackney,
         gproc,
-        cache
+        cache,
+        opentelemetry_api
     ]},
     {optional_applications, [
         thrift
