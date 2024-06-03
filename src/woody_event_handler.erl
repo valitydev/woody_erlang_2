@@ -448,8 +448,9 @@ get_event_severity(UnknownEventType, _Meta, Opts) ->
 %% Internal functions
 %%
 -spec map_severity(nonempty_list(atom()), options(), severity()) -> severity().
-map_severity(Code, Opts, Default) ->
-    EventsSeverity = maps:get(events_severity, Opts, #{}),
+map_severity(Code, Opts0, Default) ->
+    Opts1 = genlib:define(Opts0, #{}),
+    EventsSeverity = maps:get(events_severity, Opts1, #{}),
     maps:get(Code, EventsSeverity, Default).
 
 -spec format_service_request(map(), options()) -> msg().
@@ -1644,7 +1645,11 @@ event_severity_defaults_test_() ->
         ),
         ?_assertEqual(warning, get_event_severity(?EV_INTERNAL_ERROR, Meta#{error => test, reason => test}, Opts)),
 
-        ?_assertEqual(debug, get_event_severity(?EV_TRACE, Meta, Opts))
+        ?_assertEqual(debug, get_event_severity(?EV_TRACE, Meta, Opts)),
+
+        %% NOTE Ensure that 'DEFAULT_HANDLER_OPTS' from woody_util is
+        %% treated as default severity mapping.
+        ?_assertEqual(debug, get_event_severity(?EV_TRACE, Meta, undefined))
     ].
 
 -spec event_severity_all_info_test_() -> _.
